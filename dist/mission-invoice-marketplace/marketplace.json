@@ -1,0 +1,20 @@
+{
+  "name": "mission-invoice",
+  "interface": {
+    "displayName": "Mission Invoice Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "token-billing-panel",
+      "source": {
+        "source": "local",
+        "path": "./plugins/token-billing-panel"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
