@@ -1,0 +1,6 @@
+interface:
+  display_name: "Mission Invoice"
+  short_description: "Record local token and credits receipts for Codex tasks"
+  default_prompt: "Use $mission-invoice to set up local token receipt tracking for this Codex project."
+policy:
+  allow_implicit_invocation: true
