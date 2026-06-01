@@ -8,6 +8,20 @@ Mission Invoice 是 Codex 專用的小插件，會把每次 AI 協作消耗的 t
 ~/.codex-token-billing
 ```
 
+## 快速安裝
+
+請在終端機執行：
+
+```bash
+npx skills add https://github.com/gztin/missionpayment/tree/main/skills/mission-invoice
+```
+
+安裝完成後，重新啟動 Codex，接著在想啟用 Mission Invoice 的專案中輸入：
+
+```text
+/mission setup
+```
+
 ## 推薦給朋友的安裝方式：Skills Installer
 
 如果只是想讓朋友順利使用 Mission Invoice，建議先使用 Skill 版。它不需要朋友手動新增 Codex marketplace，也比較不容易卡在 GitHub 分享市集的 `git clone` 問題。
