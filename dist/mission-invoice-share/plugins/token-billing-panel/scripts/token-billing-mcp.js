@@ -2,19 +2,38 @@
 "use strict";
 
 const fs = require("fs");
-const http = require("http");
 const os = require("os");
 const path = require("path");
-const { URL } = require("url");
+const { pathToFileURL } = require("url");
 
 const DATA_DIR = process.env.TOKEN_BILLING_PANEL_DATA_DIR || path.join(os.homedir(), ".codex-token-billing");
 const LOG_FILE = path.join(DATA_DIR, "usage-log.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
-const DASHBOARD_PORT = Number(process.env.TOKEN_BILLING_PANEL_PORT || 48732);
+const RECEIPTS_DIR = path.join(DATA_DIR, "receipts");
 const SETUP_START = "<!-- mission-invoice:start -->";
 const SETUP_END = "<!-- mission-invoice:end -->";
-
-let httpServer = null;
+const DEFAULT_RATE_MODEL = "gpt-5.5";
+const RATE_CARD_SOURCE = "https://help.openai.com/en/articles/20001106-codex-rate-card";
+const MODEL_ALIASES = {
+  "5.5": "gpt-5.5",
+  "gpt-5.5": "gpt-5.5",
+  "gpt5.5": "gpt-5.5",
+  "5.4": "gpt-5.4",
+  "gpt-5.4": "gpt-5.4",
+  "gpt5.4": "gpt-5.4",
+  "5.3-codex": "gpt-5.3-codex",
+  "gpt-5.3-codex": "gpt-5.3-codex",
+  "gpt5.3-codex": "gpt-5.3-codex",
+  "5.2": "gpt-5.2",
+  "gpt-5.2": "gpt-5.2",
+  "gpt5.2": "gpt-5.2"
+};
+const TOKEN_RATE_CARD = {
+  "gpt-5.5": { displayName: "GPT-5.5", input: 125, cachedInput: 12.5, output: 750 },
+  "gpt-5.4": { displayName: "GPT-5.4", input: 62.5, cachedInput: 6.25, output: 375 },
+  "gpt-5.3-codex": { displayName: "GPT-5.3-Codex", input: 43.75, cachedInput: 4.375, output: 350 },
+  "gpt-5.2": { displayName: "GPT-5.2", input: 43.75, cachedInput: 4.375, output: 350 }
+};
 
 function ensureStore() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -30,6 +49,7 @@ function ensureStore() {
           estimateMultiplier: 1,
           monthlyTokenBudget: 2000000,
           resetDay: 1,
+          referenceModel: DEFAULT_RATE_MODEL,
           invoiceEnabled: true,
           categories: [
             "planning",
@@ -60,13 +80,17 @@ function ensureStore() {
         settings.invoiceEnabled = true;
         changed = true;
       }
+      if (settings.referenceModel === undefined) {
+        settings.referenceModel = DEFAULT_RATE_MODEL;
+        changed = true;
+      }
       if (changed) {
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
       }
     } catch {
       fs.writeFileSync(
         SETTINGS_FILE,
-        JSON.stringify({ currency: "tokens", estimateMultiplier: 1, monthlyTokenBudget: 2000000, resetDay: 1, invoiceEnabled: true }, null, 2)
+        JSON.stringify({ currency: "tokens", estimateMultiplier: 1, monthlyTokenBudget: 2000000, resetDay: 1, referenceModel: DEFAULT_RATE_MODEL, invoiceEnabled: true }, null, 2)
       );
     }
   }
@@ -96,6 +120,80 @@ function countTextTokens(text) {
   return Math.ceil(cjk * 1.35 + asciiWords * 1.25 + punctuation * 0.35);
 }
 
+function normalizeModelName(model) {
+  return String(model || "").trim().toLowerCase();
+}
+
+function normalizeReferenceModel(model) {
+  const normalized = normalizeModelName(model).replace(/\s+/g, "-");
+  return MODEL_ALIASES[normalized] || (TOKEN_RATE_CARD[normalized] ? normalized : DEFAULT_RATE_MODEL);
+}
+
+function getReferenceModel() {
+  const settings = readJson(SETTINGS_FILE, {});
+  return normalizeReferenceModel(settings.referenceModel || DEFAULT_RATE_MODEL);
+}
+
+function getReferenceModelInfo(model = getReferenceModel()) {
+  const key = normalizeReferenceModel(model);
+  return {
+    key,
+    ...TOKEN_RATE_CARD[key]
+  };
+}
+
+function listReferenceModels() {
+  const current = getReferenceModel();
+  return Object.entries(TOKEN_RATE_CARD).map(([key, value]) => ({
+    key,
+    displayName: value.displayName,
+    inputCreditsPerMillion: value.input,
+    cachedInputCreditsPerMillion: value.cachedInput,
+    outputCreditsPerMillion: value.output,
+    selected: key === current
+  }));
+}
+
+function rateForModel(model) {
+  const normalized = normalizeReferenceModel(model);
+  return TOKEN_RATE_CARD[normalized] || TOKEN_RATE_CARD[DEFAULT_RATE_MODEL];
+}
+
+function estimateTokenSpend({ model, inputTokens = 0, outputTokens = 0, cachedInputTokens = 0 } = {}) {
+  const rateModel = normalizeReferenceModel(model || getReferenceModel());
+  const rate = rateForModel(rateModel);
+  const billableInputTokens = Math.max(0, Number(inputTokens || 0) - Number(cachedInputTokens || 0));
+  const cachedTokens = Math.max(0, Number(cachedInputTokens || 0));
+  const inputCredits = (billableInputTokens / 1000000) * rate.input;
+  const cachedInputCredits = (cachedTokens / 1000000) * rate.cachedInput;
+  const outputCredits = (Number(outputTokens || 0) / 1000000) * rate.output;
+  const totalCredits = inputCredits + cachedInputCredits + outputCredits;
+  return {
+    currency: "credits",
+    rateModel,
+    rateModelDisplayName: rate.displayName,
+    rateSource: RATE_CARD_SOURCE,
+    ratePerMillionTokens: {
+      input: rate.input,
+      cachedInput: rate.cachedInput,
+      output: rate.output
+    },
+    cachedInputTokens: cachedTokens,
+    inputCredits,
+    cachedInputCredits,
+    outputCredits,
+    totalCredits,
+    inputUsd: 0,
+    cachedInputUsd: 0,
+    outputUsd: 0,
+    totalUsd: 0
+  };
+}
+
+function formatCredits(value) {
+  return `${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} credits`;
+}
+
 function estimatePlanCost(args = {}) {
   const planText = args.plan || args.planText || "";
   const context = args.context || "";
@@ -118,16 +216,16 @@ function estimatePlanCost(args = {}) {
   const inputTokens = Math.ceil(contextTokens + planTokens + fileCount * 850 + verificationSteps * 350 + 500);
   const outputTokens = Math.ceil(taskBase + expectedEdits * 700 + verificationSteps * 650 + planTokens * 0.35);
   const totalTokens = inputTokens + outputTokens;
-  const band = totalTokens < 6000 ? "低" : totalTokens < 18000 ? "中" : "高";
+  const band = totalTokens < 6000 ? "low" : totalTokens < 18000 ? "medium" : "high";
   const low = Math.ceil(totalTokens * 0.72);
   const high = Math.ceil(totalTokens * 1.45);
 
   const drivers = [];
-  if (fileCount > 0) drivers.push(`預計讀取 ${fileCount} 個檔案`);
-  if (expectedEdits > 0) drivers.push(`預計修改 ${expectedEdits} 個區塊`);
-  if (verificationSteps > 0) drivers.push(`包含 ${verificationSteps} 個驗證步驟`);
-  if (contextTokens > 1200) drivers.push("上下文內容較長");
-  if (drivers.length === 0) drivers.push("以計畫文字長度與任務類型估算");
+  if (fileCount > 0) drivers.push(`Need to inspect about ${fileCount} files.`);
+  if (expectedEdits > 0) drivers.push(`Expected edit blocks: ${expectedEdits}.`);
+  if (verificationSteps > 0) drivers.push(`Verification steps: ${verificationSteps}.`);
+  if (contextTokens > 1200) drivers.push("Large context was provided.");
+  if (drivers.length === 0) drivers.push("Baseline estimate from task type and plan length.");
 
   return {
     taskType,
@@ -148,8 +246,23 @@ function formatReceiptNo(date = new Date()) {
   return `TX-${y}${m}-${random}`;
 }
 
-function dashboardBaseUrl() {
-  return `http://127.0.0.1:${DASHBOARD_PORT}`;
+function safeReceiptFilename(receiptNo, id) {
+  const base = String(receiptNo || id || "receipt")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return `${base || "receipt"}.html`;
+}
+
+function writeStaticReceipt(record) {
+  fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
+  const receiptNo = record?.receipt?.receiptNo || record?.id;
+  const receiptFile = path.join(RECEIPTS_DIR, safeReceiptFilename(receiptNo, record?.id));
+  fs.writeFileSync(receiptFile, receiptPageHtml(record, { static: true }), "utf8");
+  return {
+    receiptFile,
+    receiptFileUrl: pathToFileURL(receiptFile).href
+  };
 }
 
 function msFromArgs(args = {}) {
@@ -173,11 +286,17 @@ function defaultLineItems(args = {}, estimate = null) {
   const inputTokens = Number(args.inputTokens ?? estimate?.inputTokens ?? 0);
   const outputTokens = Number(args.outputTokens ?? estimate?.outputTokens ?? 0);
   const items = [];
-  if (inputTokens > 0) items.push({ label: "讀取與理解", quantity: 1, tokens: inputTokens });
-  if (outputTokens > 0) items.push({ label: "生成與整理", quantity: 1, tokens: outputTokens });
-  if (items.length === 0 && totalTokens > 0) items.push({ label: "任務處理", quantity: 1, tokens: totalTokens });
-  if (items.length === 0) items.push({ label: "待估算項目", quantity: 1, tokens: 0 });
+  if (inputTokens > 0) items.push({ label: "Read and understand", quantity: 1, tokens: inputTokens });
+  if (outputTokens > 0) items.push({ label: "Generate and summarize", quantity: 1, tokens: outputTokens });
+  if (items.length === 0 && totalTokens > 0) items.push({ label: "Total tokens", quantity: 1, tokens: totalTokens });
+  if (items.length === 0) items.push({ label: "Unrecorded item", quantity: 1, tokens: 0 });
   return items;
+}
+
+function displayModelForRecord(record = {}) {
+  const spend = record.tokenSpend || {};
+  const receipt = record.receipt || {};
+  return spend.rateModelDisplayName || receipt.model || record.model || "Unknown";
 }
 
 function summarize(records) {
@@ -187,31 +306,43 @@ function summarize(records) {
     records: records.length,
     inputTokens: 0,
     outputTokens: 0,
-    totalTokens: 0
+    totalTokens: 0,
+    estimatedCredits: 0,
+    estimatedUsd: 0
   };
   const today = {
     records: 0,
     inputTokens: 0,
     outputTokens: 0,
-    totalTokens: 0
+    totalTokens: 0,
+    estimatedCredits: 0,
+    estimatedUsd: 0
   };
   const byCategory = {};
+  const byModel = {};
   const recent = records.slice(-12).reverse();
   const latestReceipt = records.slice().reverse().find((record) => record.receipt);
 
   for (const record of records) {
     const category = record.category || "uncategorized";
+    const modelName = displayModelForRecord(record);
     const input = Number(record.inputTokens || 0);
     const output = Number(record.outputTokens || 0);
     const total = Number(record.totalTokens || input + output || 0);
+    const spend = record.tokenSpend || estimateTokenSpend({ model: record.model, inputTokens: input, outputTokens: output });
     totals.inputTokens += input;
     totals.outputTokens += output;
     totals.totalTokens += total;
+    const credits = Number(spend.totalCredits ?? spend.totalUsd ?? 0);
+    totals.estimatedCredits += credits;
+    totals.estimatedUsd += Number(spend.totalUsd || 0);
     if (String(record.createdAt || record.endedAt || "").slice(0, 10) === todayKey) {
       today.records += 1;
       today.inputTokens += input;
       today.outputTokens += output;
       today.totalTokens += total;
+      today.estimatedCredits += credits;
+      today.estimatedUsd += Number(spend.totalUsd || 0);
     }
     if (!byCategory[category]) {
       byCategory[category] = { category, records: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -220,9 +351,29 @@ function summarize(records) {
     byCategory[category].inputTokens += input;
     byCategory[category].outputTokens += output;
     byCategory[category].totalTokens += total;
+    if (!byModel[modelName]) {
+      byModel[modelName] = { model: modelName, records: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, categories: {} };
+    }
+    byModel[modelName].records += 1;
+    byModel[modelName].inputTokens += input;
+    byModel[modelName].outputTokens += output;
+    byModel[modelName].totalTokens += total;
+    if (!byModel[modelName].categories[category]) {
+      byModel[modelName].categories[category] = { category, records: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
+    byModel[modelName].categories[category].records += 1;
+    byModel[modelName].categories[category].inputTokens += input;
+    byModel[modelName].categories[category].outputTokens += output;
+    byModel[modelName].categories[category].totalTokens += total;
   }
 
   const categories = Object.values(byCategory).sort((a, b) => b.totalTokens - a.totalTokens);
+  const models = Object.values(byModel)
+    .map((model) => ({
+      ...model,
+      categories: Object.values(model.categories).sort((a, b) => b.totalTokens - a.totalTokens)
+    }))
+    .sort((a, b) => b.totalTokens - a.totalTokens);
   const monthlyTokenBudget = Number(settings.monthlyTokenBudget || 0);
   const remainingTokens = Math.max(0, monthlyTokenBudget - totals.totalTokens);
   return {
@@ -231,6 +382,12 @@ function summarize(records) {
     logFile: LOG_FILE,
     totals,
     today,
+    rateCard: {
+      source: RATE_CARD_SOURCE,
+      defaultModel: DEFAULT_RATE_MODEL,
+      rates: TOKEN_RATE_CARD
+    },
+    referenceModel: getReferenceModelInfo(),
     wallet: {
       monthlyTokenBudget,
       usedTokens: totals.totalTokens,
@@ -239,6 +396,7 @@ function summarize(records) {
       resetDay: Number(settings.resetDay || 1)
     },
     categories,
+    models,
     recent
     ,
     latestReceipt
@@ -247,7 +405,30 @@ function summarize(records) {
 
 function getUsageSummary() {
   const data = readJson(LOG_FILE, { records: [] });
-  return summarize(Array.isArray(data.records) ? data.records : []);
+  return summarize(Array.isArray(data.records) ? data.records.map(withTokenSpend) : []);
+}
+
+function withTokenSpend(record) {
+  const inputTokens = Number(record?.inputTokens || 0);
+  const outputTokens = Number(record?.outputTokens || 0);
+  const tokenSpend = record?.tokenSpend && record.tokenSpend.totalCredits !== undefined
+    ? record.tokenSpend
+    : estimateTokenSpend({
+      model: record?.referenceModel || record?.model || getReferenceModel(),
+      inputTokens,
+      outputTokens,
+      cachedInputTokens: record?.cachedInputTokens || 0
+    });
+  return {
+    ...record,
+    tokenSpend
+  };
+}
+
+function getUsageRecords() {
+  const data = readJson(LOG_FILE, { records: [] });
+  const records = Array.isArray(data.records) ? data.records.map(withTokenSpend) : [];
+  return { ...data, records };
 }
 
 function getInvoiceMode() {
@@ -257,6 +438,8 @@ function getInvoiceMode() {
     commandOn: "/mission on",
     commandOff: "/mission off",
     commandSetup: "/mission setup",
+    commandModel: "/mission model GPT-5.5",
+    referenceModel: getReferenceModelInfo(),
     legacyOnAliases: ["/Token Billing Invoice"],
     legacyOffAliases: ["/Token Billing texfree", "/Token Billing taxfree"]
   };
@@ -371,23 +554,33 @@ function recordTaskUsage(args = {}) {
   const inputTokens = Number(args.inputTokens ?? estimate?.inputTokens ?? 0);
   const outputTokens = Number(args.outputTokens ?? estimate?.outputTokens ?? 0);
   const totalTokens = Number(args.totalTokens ?? estimate?.totalTokens ?? inputTokens + outputTokens);
+  const cachedInputTokens = Number(args.cachedInputTokens ?? estimate?.cachedInputTokens ?? 0);
   const startedAt = args.startedAt || undefined;
   const endedAt = args.endedAt || new Date().toISOString();
   const durationMs = msFromArgs({ ...args, endedAt });
   const lineItems = defaultLineItems({ ...args, inputTokens, outputTokens, totalTokens }, estimate);
   const receiptNo = args.receiptNo || formatReceiptNo(new Date(endedAt));
+  const referenceModel = normalizeReferenceModel(args.referenceModel || args.model || getReferenceModel());
+  const referenceModelInfo = getReferenceModelInfo(referenceModel);
+  const model = referenceModelInfo.displayName;
+  const modelSource = args.referenceModel || args.model ? "manual override" : "stored reference model";
+  const tokenSpend = estimateTokenSpend({ model: referenceModel, inputTokens, outputTokens, cachedInputTokens });
   const record = {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     createdAt: new Date().toISOString(),
     task: args.task || args.title || "Untitled task",
     category: args.category || estimate?.taskType || "uncategorized",
-    model: args.model || "unknown",
+    model,
     startedAt,
     endedAt,
     durationMs,
     inputTokens,
     outputTokens,
     totalTokens,
+    cachedInputTokens,
+    tokenSpend,
+    referenceModel,
+    modelSource,
     confidence: args.confidence || estimate?.confidence || "estimated",
     status: args.status || "completed",
     notes: args.notes || "",
@@ -395,7 +588,9 @@ function recordTaskUsage(args = {}) {
       receiptNo,
       storeName: args.storeName || "Codex Token Mart",
       paymentType: args.paymentType || "Estimated",
-      model: args.model || "unknown",
+      model,
+      referenceModel,
+      modelSource,
       startedAt,
       endedAt,
       durationMs,
@@ -403,11 +598,44 @@ function recordTaskUsage(args = {}) {
     },
     estimate: estimate || undefined
   };
-  record.receiptUrl = `${dashboardBaseUrl()}/receipt/${encodeURIComponent(record.id)}`;
+  const staticReceipt = writeStaticReceipt(record);
+  record.receiptFile = staticReceipt.receiptFile;
+  record.receiptFileUrl = staticReceipt.receiptFileUrl;
+  record.receiptUrl = record.receiptFileUrl;
   data.records = Array.isArray(data.records) ? data.records : [];
   data.records.push(record);
   writeJson(LOG_FILE, data);
-  return { record, receiptUrl: record.receiptUrl, summary: getUsageSummary() };
+  const history = writeStaticHistory(data.records);
+  return {
+    record,
+    receiptUrl: record.receiptUrl,
+    receiptFile: record.receiptFile,
+    receiptFileUrl: record.receiptFileUrl,
+    historyUrl: history.historyFileUrl,
+    historyFile: history.historyFile,
+    summary: getUsageSummary()
+  };
+}
+
+function setReferenceModel(args = {}) {
+  const requested = args.model || args.referenceModel || args.name || args.mode;
+  if (String(requested || "").trim().toLowerCase() === "list") {
+    return {
+      referenceModel: getReferenceModelInfo(),
+      models: listReferenceModels(),
+      command: "/mission model <model>"
+    };
+  }
+  const model = normalizeReferenceModel(requested || DEFAULT_RATE_MODEL);
+  const settings = readJson(SETTINGS_FILE, {});
+  settings.referenceModel = model;
+  writeJson(SETTINGS_FILE, settings);
+  return {
+    referenceModel: getReferenceModelInfo(model),
+    models: listReferenceModels(),
+    command: `/mission model ${TOKEN_RATE_CARD[model].displayName}`,
+    message: `Mission Invoice reference model is now ${TOKEN_RATE_CARD[model].displayName}. Future receipts use this model's credits rate card for estimates.`
+  };
 }
 
 function getLatestReceipt() {
@@ -448,240 +676,184 @@ function formatDuration(ms) {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+function receiptFilenameFor(record) {
+  return safeReceiptFilename(record?.receipt?.receiptNo, record?.id);
+}
+
+function receiptHrefFor(record) {
+  return receiptFilenameFor(record);
+}
+
+function localizeLineLabel(label, lang) {
+  const value = String(label || "Token item");
+  const zh = {
+    "Implement static receipt export": "Static receipt export",
+    "Sync marketplace and share packages": "Sync share package",
+    "Verify generated HTML receipt": "Verify HTML receipt",
+    "Static receipt test": "Static receipt test",
+    "Plan and approval": "Plan and approval",
+    "Delete archive files": "Delete archive files",
+    "Verification and receipt": "Verification and receipt",
+    "Read and understand": "Read and understand",
+    "Generate and summarize": "Generate and summarize",
+    "Total tokens": "Total tokens",
+    "Unrecorded item": "Unrecorded item"
+  };
+  return lang === "zh" ? (zh[value] || value) : value;
+}
+
 function receiptPageHtml(record) {
-  const receipt = record?.receipt;
-  const lineItems = receipt?.lineItems || [];
-  const itemRows = lineItems.map((item) => `
+  const receipt = record?.receipt || {};
+  const spend = record?.tokenSpend || estimateTokenSpend({
+    model: record?.referenceModel,
+    inputTokens: record?.inputTokens,
+    outputTokens: record?.outputTokens,
+    cachedInputTokens: record?.cachedInputTokens
+  });
+  const modelName = spend.rateModelDisplayName || receipt.model || record?.model || getReferenceModelInfo().displayName;
+  const rows = (receipt.lineItems || []).map((item) => `
       <tr>
-        <td>${escapeHtml(item.label)}</td>
+        <td>${escapeHtml(localizeLineLabel(item.label, "zh"))}</td>
         <td class="num">${escapeHtml(item.quantity || 1)}</td>
         <td class="num">${escapeHtml(Number(item.tokens || 0).toLocaleString("zh-Hant-TW"))}</td>
       </tr>`).join("");
+  const dataJson = JSON.stringify({ record, rateCard: getReferenceModelInfo(record?.referenceModel) }).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Token 電子發票</title>
+  <title>Mission Invoice ${escapeHtml(receipt.receiptNo || "")}</title>
   <style>
-    body { margin: 0; min-height: 100vh; display: grid; place-items: start center; background: #eef1f5; color: #16181d; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 28px 16px; }
-    .receipt { width: min(390px, 100%); background: #fffefa; border: 1px solid #dad4c8; box-shadow: 0 18px 42px rgba(28, 33, 39, .16); padding: 22px 20px; }
+    :root { color-scheme: light; --ink: #20242b; --muted: #69707a; --line: #c7ccd4; --paper: #fffefa; --bg: #eef1f5; --accent: #2457a6; --green: #1f7a5a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: start center; background: var(--bg); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 28px 16px; }
+    .receipt { width: min(430px, 100%); background: var(--paper); border: 1px solid #dad4c8; box-shadow: 0 18px 42px rgba(28, 33, 39, .16); padding: 22px 20px; }
     .center { text-align: center; }
     .title { font-size: 20px; font-weight: 800; letter-spacing: 0; }
-    .subtitle { color: #69707a; font-size: 12px; margin-top: 4px; }
+    .subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.5; }
     .cut { border-top: 1px dashed #9ca3af; margin: 16px 0; }
     .row { display: flex; justify-content: space-between; gap: 14px; margin: 8px 0; font-size: 13px; }
-    .row span:first-child { color: #69707a; }
+    .row span:first-child { color: var(--muted); white-space: nowrap; }
+    .row strong { text-align: right; overflow-wrap: anywhere; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { padding: 7px 0; border-bottom: 1px dotted #c7ccd4; text-align: left; }
-    th { color: #69707a; font-weight: 700; }
+    th, td { padding: 7px 0; border-bottom: 1px dotted var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 700; }
     .num { text-align: right; }
     .total { font-size: 22px; font-weight: 900; }
-    .badge { display: inline-block; border: 1px solid #1f7a5a; color: #1f7a5a; padding: 4px 8px; border-radius: 999px; font-size: 12px; }
-    a { color: #2457a6; text-decoration: none; }
+    .badge { display: inline-block; border: 1px solid var(--green); color: var(--green); padding: 4px 8px; border-radius: 999px; font-size: 12px; }
+    .footer-links { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; }
+    .footer-links a { color: var(--accent); font-weight: 800; text-decoration: none; }
   </style>
 </head>
 <body>
   <article class="receipt">
-    <div class="center">
-      <div class="title">${escapeHtml(receipt?.storeName || "Codex Token Mart")}</div>
-      <div class="subtitle">TOKEN ELECTRONIC RECEIPT</div>
-      <div class="subtitle">${escapeHtml(receipt?.receiptNo || "NO-RECEIPT")}</div>
-    </div>
-    <div class="cut"></div>
-    <div class="row"><span>任務</span><strong>${escapeHtml(record?.task || "尚無任務")}</strong></div>
-    <div class="row"><span>類型</span><strong>${escapeHtml(record?.category || "-")}</strong></div>
-    <div class="row"><span>模型</span><strong>${escapeHtml(record?.model || receipt?.model || "unknown")}</strong></div>
-    <div class="row"><span>耗時</span><strong>${escapeHtml(formatDuration(record?.durationMs || receipt?.durationMs))}</strong></div>
-    <div class="row"><span>時間</span><strong>${escapeHtml(record?.endedAt || record?.createdAt || "-")}</strong></div>
-    <div class="cut"></div>
-    <table>
-      <thead><tr><th>品項</th><th class="num">數量</th><th class="num">TOKENS</th></tr></thead>
-      <tbody>${itemRows || '<tr><td colspan="3">尚無明細</td></tr>'}</tbody>
-    </table>
-    <div class="cut"></div>
-    <div class="row"><span>INPUT</span><strong>${escapeHtml(Number(record?.inputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-    <div class="row"><span>OUTPUT</span><strong>${escapeHtml(Number(record?.outputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-    <div class="row"><span>TOTAL</span><strong class="total">${escapeHtml(Number(record?.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-    <div class="row"><span>PAYMENT</span><span class="badge">${escapeHtml(receipt?.paymentType || "Estimated")}</span></div>
-    <div class="cut"></div>
-    <div class="center subtitle">資料僅儲存在本機。<br><a href="/dashboard">查看 Dashboard</a></div>
+    <section>
+      <div class="center"><div class="title">${escapeHtml(receipt.storeName || "Codex Token Mart")}</div><div class="subtitle">TOKEN &#x96FB;&#x5B50;&#x767C;&#x7968;</div><div class="subtitle">${escapeHtml(receipt.receiptNo || "NO-RECEIPT")}</div></div>
+      <div class="cut"></div>
+      <div class="row"><span>&#x4EFB;&#x52D9;</span><strong>${escapeHtml(record?.task || "Untitled task")}</strong></div>
+      <div class="row"><span>&#x985E;&#x578B;</span><strong>${escapeHtml(record?.category || "-")}</strong></div>
+      <div class="row"><span>&#x6A21;&#x578B;</span><strong>${escapeHtml(modelName)}</strong></div>
+      <div class="row"><span>&#x6A21;&#x578B;&#x4F86;&#x6E90;</span><strong>${escapeHtml(record?.modelSource || "default reference model")}</strong></div>
+      <div class="row"><span>&#x8017;&#x6642;</span><strong>${escapeHtml(formatDuration(record?.durationMs || receipt.durationMs))}</strong></div>
+      <div class="row"><span>&#x6642;&#x9593;</span><strong>${escapeHtml(record?.endedAt || record?.createdAt || "-")}</strong></div>
+      <div class="cut"></div>
+      <table><thead><tr><th>&#x54C1;&#x9805;</th><th class="num">&#x6578;&#x91CF;</th><th class="num">Tokens</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No items</td></tr>'}</tbody></table>
+      <div class="cut"></div>
+      <div class="row"><span>Input</span><strong>${escapeHtml(Number(record?.inputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="row"><span>Cached input</span><strong>${escapeHtml(Number(record?.cachedInputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="row"><span>Output</span><strong>${escapeHtml(Number(record?.outputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="row"><span>Total</span><strong class="total">${escapeHtml(Number(record?.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="row"><span>&#x4ED8;&#x6B3E;</span><span class="badge">${escapeHtml(receipt.paymentType || "Estimated")}</span></div>
+      <div class="row"><span>Rate card</span><strong>${escapeHtml(modelName)}</strong></div>
+      <div class="center subtitle">Estimated from the Codex rate card. Data is stored locally. The model is a user-selected reference basis.</div>
+      <div class="cut"></div>
+      <nav class="footer-links"><a href="index.html#history">&#x6B77;&#x53F2;&#x5E33;&#x55AE;</a><a href="index.html#stats">&#x7D71;&#x8A08;&#x8CC7;&#x8A0A;</a></nav>
+    </section>
   </article>
+  <script type="application/json" id="mission-invoice-data">${dataJson}</script>
 </body>
 </html>`;
 }
 
-function dashboardHtml() {
+function historyPageHtml(records) {
+  const normalized = Array.isArray(records) ? records.map(withTokenSpend) : [];
+  const summary = summarize(normalized);
+  const rows = normalized.slice().reverse().map((record) => {
+    const receipt = record.receipt || {};
+    const receiptNo = receipt.receiptNo || record.id || "-";
+    return `<tr><td><strong>${escapeHtml(receiptNo)}</strong></td><td class="num">${escapeHtml(Number(record.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</td><td><a class="view-link" href="${escapeHtml(receiptHrefFor(record))}">?亦?</a></td></tr>`;
+  }).join("");
+  const stats = summary.models.map((model) => {
+    const categoryRows = model.categories.map((category) => `<tr><td>${escapeHtml(category.category)}</td><td class="num">${escapeHtml(Number(category.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</td><td class="num">${escapeHtml(Number(category.records || 0).toLocaleString("zh-Hant-TW"))}</td></tr>`).join("");
+    return `<section class="model-block"><div class="model-head"><h3>${escapeHtml(model.model)}</h3><span>${escapeHtml(Number(model.totalTokens || 0).toLocaleString("zh-Hant-TW"))} tokens</span></div><table><thead><tr><th>隞餃?憿?</th><th class="num">Token</th><th class="num">蝑</th></tr></thead><tbody>${categoryRows || '<tr><td colspan="3">瘝?蝝??/td></tr>'}</tbody></table></section>`;
+  }).join("");
   return `<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mission Invoice</title>
+  <title>Mission Invoice History</title>
   <style>
-    :root {
-      color-scheme: light;
-      --ink: #17202a;
-      --muted: #667085;
-      --line: #d8dee8;
-      --panel: #ffffff;
-      --bg: #f5f7fa;
-      --green: #1f7a5a;
-      --blue: #2457a6;
-      --amber: #a05a00;
-    }
+    :root { color-scheme: light; --ink: #20242b; --muted: #69707a; --line: #d8dee8; --panel: #fbfcfe; --bg: #f4f6f9; --accent: #2457a6; --accent-bg: #eaf1fb; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
-    header { padding: 22px 28px 18px; border-bottom: 1px solid var(--line); background: #fff; }
+    header { padding: 24px 28px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
     h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
-    main { padding: 24px 28px 36px; display: grid; gap: 18px; }
-    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
-    .tabs { display: flex; gap: 4px; margin-top: 18px; }
-    .tab { appearance: none; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-weight: 700; padding: 12px 16px; }
-    .tab.active { color: var(--ink); border-bottom-color: var(--blue); }
-    .panel { display: none; }
-    .panel.active { display: grid; gap: 18px; }
-    .label { color: var(--muted); font-size: 13px; }
-    .value { font-size: 28px; font-weight: 700; margin-top: 6px; }
+    h2 { margin: 0; font-size: 20px; letter-spacing: 0; }
+    h3 { margin: 0; font-size: 15px; letter-spacing: 0; }
+    main { padding: 24px 28px 36px; }
+    .panel { max-width: 1040px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+    .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .desc { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+    .desc a { color: var(--accent); font-weight: 800; text-decoration: none; }
+    .metric { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+    .metric span, .model-head span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .metric strong { font-size: 24px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-    th { color: var(--muted); font-weight: 600; }
-    .muted { color: var(--muted); }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+    th { color: var(--muted); font-weight: 700; }
     .num { text-align: right; }
-    .wallet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-    .wallet-bar { height: 14px; background: #e6ebf2; border-radius: 999px; overflow: hidden; }
-    .wallet-fill { height: 100%; background: var(--green); }
-    .history-actions a { color: var(--blue); font-weight: 700; text-decoration: none; }
-    .top-link { color: var(--blue); font-weight: 700; text-decoration: none; }
-    @media (max-width: 820px) {
-      header, main { padding-left: 16px; padding-right: 16px; }
-      .wallet-grid { grid-template-columns: 1fr; }
-      .value { font-size: 24px; }
-      .tabs { overflow-x: auto; }
-      .tab { white-space: nowrap; }
-    }
+    .view-link { display: inline-flex; align-items: center; justify-content: center; min-width: 52px; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); background: var(--accent-bg); font-weight: 800; text-decoration: none; padding: 5px 10px; }
+    .model-block { padding: 14px 0; border-top: 1px solid var(--line); }
+    .model-block:first-of-type { border-top: 0; padding-top: 0; }
+    .model-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    [data-view-panel] { display: none; }
+    [data-view-panel].active { display: block; }
+    @media (max-width: 720px) { header, main { padding-left: 16px; padding-right: 16px; } table { font-size: 13px; } .panel-head { display: block; } .count { display: block; margin-top: 6px; } }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Mission Invoice</h1>
-    <div class="muted">歷史帳單與錢包資訊</div>
-    <p><a class="top-link" href="/">回到最新發票</a></p>
-    <nav class="tabs" aria-label="Dashboard tabs">
-      <button class="tab active" data-tab="history">歷史帳單</button>
-      <button class="tab" data-tab="wallet">錢包資訊</button>
-    </nav>
-  </header>
+  <header><h1>Mission Invoice</h1></header>
   <main>
-    <section id="history" class="panel active">
-      <div class="card">
-        <h2>歷史帳單</h2>
-        <table>
-          <thead><tr><th>發票號碼</th><th class="num">Token 花費</th><th>明細</th></tr></thead>
-          <tbody id="history-rows"></tbody>
-        </table>
-      </div>
-    </section>
-    <section id="wallet" class="panel">
-      <div class="wallet-grid">
-        <div class="card"><div class="label">總 token 預算</div><div id="wallet-budget" class="value">0</div></div>
-        <div class="card"><div class="label">剩餘 token</div><div id="wallet-remaining" class="value">0</div></div>
-        <div class="card"><div class="label">本日任務筆數</div><div id="wallet-today" class="value">0</div></div>
-      </div>
-      <div class="card">
-        <div class="label">使用率</div>
-        <div class="wallet-bar"><div id="wallet-fill" class="wallet-fill" style="width:0%"></div></div>
-        <p id="wallet-copy" class="muted"></p>
-      </div>
-    </section>
+    <section class="panel" data-view-panel="history"><div class="panel-head"><h2>甇瑕撣喳</h2><span class="count">撣喳蝑 ${escapeHtml(summary.totals.records.toLocaleString("zh-Hant-TW"))}</span></div><p class="desc">?＊蝷箇蟡函??? token ?梯祥??a href="#stats" data-view="stats">?亦?蝯梯?鞈?</a></p><table><thead><tr><th>?潛巨?Ⅳ</th><th class="num">Token ?梯祥</th><th>?亦?</th></tr></thead><tbody>${rows || '<tr><td colspan="3">?桀?瘝?撣喳蝝??/td></tr>'}</tbody></table></section>
+    <section class="panel" data-view-panel="stats"><div class="panel-head"><h2>蝯梯?鞈?</h2></div><p class="desc">靘芋??蝔勗???隞餃?憿???token 蝯梯???a href="#history" data-view="history">?甇瑕撣喳</a></p><div class="metric"><span>蝮賣???token</span><strong>${escapeHtml(summary.totals.totalTokens.toLocaleString("zh-Hant-TW"))}</strong></div>${stats || '<p>?桀?瘝?蝯梯?鞈?</p>'}</section>
   </main>
   <script>
-    const fmt = new Intl.NumberFormat("zh-Hant-TW");
-    function setText(id, value) { document.getElementById(id).textContent = fmt.format(value || 0); }
-    function switchTab(name) {
-      document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === name));
-      document.querySelectorAll(".panel").forEach((panel) => panel.classList.toggle("active", panel.id === name));
+    function setHistoryView(view) {
+      var next = view === "stats" ? "stats" : "history";
+      document.querySelectorAll("[data-view-panel]").forEach(function(panel) { panel.classList.toggle("active", panel.dataset.viewPanel === next); });
+      localStorage.setItem("missionInvoiceHistoryView", next);
     }
-    async function load() {
-      const [summaryRes, recordsRes] = await Promise.all([
-        fetch("/api/summary", { cache: "no-store" }),
-        fetch("/api/records", { cache: "no-store" })
-      ]);
-      const data = await summaryRes.json();
-      const recordData = await recordsRes.json();
-      const allRecords = Array.isArray(recordData.records) ? recordData.records.slice().reverse() : [];
-      setText("wallet-budget", data.wallet.monthlyTokenBudget);
-      setText("wallet-remaining", data.wallet.remainingTokens);
-      setText("wallet-today", data.today.records);
-      const usagePct = Math.min(100, Math.max(0, (data.wallet.usageRate || 0) * 100));
-      document.getElementById("wallet-fill").style.width = usagePct + "%";
-      document.getElementById("wallet-copy").textContent = "已使用 " + fmt.format(data.wallet.usedTokens || 0) + " tokens，約 " + usagePct.toFixed(1) + "%。重置日：每月 " + (data.wallet.resetDay || 1) + " 日。";
-      document.getElementById("history-rows").innerHTML = allRecords.length ? allRecords.map((item) => {
-        const receipt = item.receipt || {};
-        const url = item.receiptUrl || ("/receipt/" + encodeURIComponent(item.id));
-        return \`<tr>
-          <td>\${receipt.receiptNo || "-"}</td>
-          <td class="num"><strong>\${fmt.format(item.totalTokens || 0)}</strong></td>
-          <td class="history-actions"><a href="\${url}">查看</a></td>
-        </tr>\`;
-      }).join("") : '<tr><td colspan="3" class="muted">尚無歷史帳單</td></tr>';
-    }
-    document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => switchTab(button.dataset.tab)));
-    load().catch((error) => {
-      document.querySelector("main").innerHTML = '<div class="card">Dashboard API 尚未啟動：' + error.message + '</div>';
-    });
+    document.querySelectorAll("a[data-view]").forEach(function(link) { link.addEventListener("click", function(event) { event.preventDefault(); setHistoryView(link.dataset.view); location.hash = link.dataset.view; }); });
+    setHistoryView(location.hash === "#stats" ? "stats" : (localStorage.getItem("missionInvoiceHistoryView") || "history"));
   </script>
 </body>
 </html>`;
 }
-
-function startDashboardServer() {
-  if (httpServer) {
-    return `http://127.0.0.1:${DASHBOARD_PORT}`;
+function writeStaticHistory(records) {
+  fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
+  const allRecords = Array.isArray(records) ? records.map(withTokenSpend) : [];
+  for (const item of allRecords) {
+    if (item.receipt) {
+      const file = path.join(RECEIPTS_DIR, receiptFilenameFor(item));
+      fs.writeFileSync(file, receiptPageHtml(item), "utf8");
+    }
   }
-  ensureStore();
-  httpServer = http.createServer((req, res) => {
-    const requestUrl = new URL(req.url, `http://127.0.0.1:${DASHBOARD_PORT}`);
-    if (requestUrl.pathname === "/api/summary") {
-      sendJson(res, 200, getUsageSummary());
-      return;
-    }
-    if (requestUrl.pathname === "/api/receipt/latest") {
-      sendJson(res, 200, getLatestReceipt() || {});
-      return;
-    }
-    if (requestUrl.pathname === "/api/records") {
-      sendJson(res, 200, readJson(LOG_FILE, { records: [] }));
-      return;
-    }
-    if (requestUrl.pathname === "/receipt/latest") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-      res.end(receiptPageHtml(getLatestReceipt()));
-      return;
-    }
-    if (requestUrl.pathname.startsWith("/receipt/")) {
-      const id = decodeURIComponent(requestUrl.pathname.slice("/receipt/".length));
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-      res.end(receiptPageHtml(getReceiptById(id)));
-      return;
-    }
-    if (requestUrl.pathname === "/dashboard") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-      res.end(dashboardHtml());
-      return;
-    }
-    if (requestUrl.pathname === "/" || requestUrl.pathname === "/index.html") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-      res.end(receiptPageHtml(getLatestReceipt()));
-      return;
-    }
-    sendJson(res, 404, { error: "Not found" });
-  });
-  httpServer.listen(DASHBOARD_PORT, "127.0.0.1");
-  httpServer.on("error", (error) => {
-    console.error(`[token-billing-panel] dashboard error: ${error.message}`);
-  });
-  return `http://127.0.0.1:${DASHBOARD_PORT}`;
+  const historyFile = path.join(RECEIPTS_DIR, "index.html");
+  fs.writeFileSync(historyFile, historyPageHtml(allRecords), "utf8");
+  return { historyFile, historyFileUrl: pathToFileURL(historyFile).href };
 }
 
 const tools = [
@@ -715,6 +887,7 @@ const tools = [
         inputTokens: { type: "number" },
         outputTokens: { type: "number" },
         totalTokens: { type: "number" },
+        cachedInputTokens: { type: "number" },
         confidence: { type: "string" },
         status: { type: "string" },
         notes: { type: "string" },
@@ -734,6 +907,21 @@ const tools = [
     name: "get_invoice_mode",
     description: "Return whether automatic Mission Invoice generation is enabled.",
     inputSchema: { type: "object", properties: {} }
+  },
+  {
+    name: "get_reference_models",
+    description: "List available Mission Invoice reference models and the selected credits rate basis.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  {
+    name: "set_reference_model",
+    description: "Set the Mission Invoice reference model used for credits estimates. Equivalent to /mission model <model>.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        model: { type: "string", description: "One of GPT-5.5, GPT-5.4, GPT-5.3-Codex, or GPT-5.2. Use list to list models." }
+      }
+    }
   },
   {
     name: "set_invoice_mode",
@@ -767,16 +955,6 @@ const tools = [
       },
       required: ["projectPath", "confirmed"]
     }
-  },
-  {
-    name: "open_billing_panel",
-    description: "Start the local dashboard server and return its URL.",
-    inputSchema: { type: "object", properties: {} }
-  },
-  {
-    name: "open_latest_receipt",
-    description: "Start the local dashboard server and return the latest token receipt URL.",
-    inputSchema: { type: "object", properties: {} }
   }
 ];
 
@@ -794,17 +972,11 @@ async function callTool(name, args) {
   if (name === "record_task_usage") return recordTaskUsage(args);
   if (name === "get_usage_summary") return getUsageSummary();
   if (name === "get_invoice_mode") return getInvoiceMode();
+  if (name === "get_reference_models") return { referenceModel: getReferenceModelInfo(), models: listReferenceModels(), command: "/mission model <model>" };
+  if (name === "set_reference_model") return setReferenceModel(args);
   if (name === "set_invoice_mode") return setInvoiceMode(args);
   if (name === "get_project_setup_status") return getProjectSetupStatus(args);
   if (name === "setup_project_instructions") return setupProject(args);
-  if (name === "open_billing_panel") {
-    const url = startDashboardServer();
-    return { url, summary: getUsageSummary() };
-  }
-  if (name === "open_latest_receipt") {
-    const url = startDashboardServer();
-    return { url: `${url}/receipt/latest`, receipt: getLatestReceipt() };
-  }
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -860,11 +1032,6 @@ function extractMessages() {
   return messages.filter(Boolean);
 }
 
-if (process.argv.includes("--dashboard-only")) {
-  const url = startDashboardServer();
-  console.log(`Mission Invoice dashboard: ${url}`);
-  process.stdin.resume();
-} else {
 process.stdin.on("data", (chunk) => {
   buffer = Buffer.concat([buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
   for (const rawMessage of extractMessages()) {
@@ -891,4 +1058,3 @@ process.stdin.on("data", (chunk) => {
 });
 
 ensureStore();
-}
