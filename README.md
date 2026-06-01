@@ -1,6 +1,6 @@
 # Mission Invoice
 
-Mission Invoice 是透過 GitHub 分享的 Codex 外掛套件，用來把 Codex 任務的預估 token 消耗記錄成本機靜態發票。
+Mission Invoice 是 Codex 專用的插件，將把每次 AI 協作消耗的 token 與 credits 統計成一張電子發票。
 
 所有資料都保存在使用者自己的電腦：
 
