@@ -129,7 +129,7 @@ Plugin 版
 
 ## 開發與發佈流程
 
-本 repo 以 `skills/mission-invoice` 作為主要功能來源。Skill 版直接由這個資料夾安裝；Plugin Marketplace 版則由 build script 產生到 `dist/mission-invoice-share`。
+本 repo 以 `skills/mission-invoice` 作為主要功能來源。Skill 版直接由這個資料夾安裝；Plugin Marketplace 版則由 build script 產生到 `plugins/token-billing-panel` 與 `dist/mission-invoice-share`。
 
 重新產生分享市集：
 
@@ -140,6 +140,13 @@ node scripts/build_plugin_share.js
 產出結構：
 
 ```text
+.agents/plugins/marketplace.json
+plugins/token-billing-panel/
+  .codex-plugin/plugin.json
+  .mcp.json
+  skills/token-billing-panel/SKILL.md
+  scripts/token-billing-mcp.js
+
 dist/mission-invoice-share/
   marketplace.json
   plugins/token-billing-panel/
@@ -153,7 +160,16 @@ dist/mission-invoice-share/
 
 ```bash
 python3 /Users/ggt/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
+  /Users/ggt/Documents/GitHub/missionpayment/plugins/token-billing-panel
+python3 /Users/ggt/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
   /Users/ggt/Documents/GitHub/missionpayment/dist/mission-invoice-share/plugins/token-billing-panel
+```
+
+本機測試 repo marketplace：
+
+```bash
+codex plugin marketplace add /Users/ggt/Documents/GitHub/missionpayment
+codex plugin add token-billing-panel@mission-invoice
 ```
 
 ## 問題排解

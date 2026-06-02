@@ -8,7 +8,9 @@ const root = path.resolve(__dirname, "..");
 const sourceSkill = path.join(root, "skills", "mission-invoice");
 const outRoot = path.join(root, "dist", "mission-invoice-share");
 const pluginName = "token-billing-panel";
-const pluginRoot = path.join(outRoot, "plugins", pluginName);
+const repoMarketplaceRoot = root;
+const repoPluginRoot = path.join(root, "plugins", pluginName);
+const sharePluginRoot = path.join(outRoot, "plugins", pluginName);
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -52,10 +54,10 @@ const sourceScript = path.join(sourceSkill, "scripts", "token-billing-mcp.js");
 assertFile(sourceSkillMd);
 assertFile(sourceScript);
 
-writeJson(path.join(outRoot, "marketplace.json"), {
-  name: "mission-invoice-share",
+const marketplace = {
+  name: "mission-invoice",
   interface: {
-    displayName: "Mission Invoice Share"
+    displayName: "Mission Invoice"
   },
   plugins: [
     {
@@ -71,9 +73,17 @@ writeJson(path.join(outRoot, "marketplace.json"), {
       category: "Productivity"
     }
   ]
-});
+};
 
-writeJson(path.join(pluginRoot, ".codex-plugin", "plugin.json"), {
+const shareMarketplace = {
+  ...marketplace,
+  name: "mission-invoice-share",
+  interface: {
+    displayName: "Mission Invoice Share"
+  }
+};
+
+const pluginJson = {
   name: pluginName,
   version: "0.1.0+codex.20260601083233",
   description: "Mission Invoice 會為 Codex 專案產生本機 Token 電子發票，支援 /mission setup 專案初始化，並可用 /mission on 或 /mission off 切換。",
@@ -103,9 +113,9 @@ writeJson(path.join(pluginRoot, ".codex-plugin", "plugin.json"), {
     ]
   },
   mcpServers: "./.mcp.json"
-});
+};
 
-writeJson(path.join(pluginRoot, ".mcp.json"), {
+const mcpJson = {
   mcpServers: {
     [pluginName]: {
       command: "node",
@@ -114,12 +124,21 @@ writeJson(path.join(pluginRoot, ".mcp.json"), {
       ]
     }
   }
-});
+};
 
-writeFile(
-  path.join(pluginRoot, "skills", pluginName, "SKILL.md"),
-  pluginSkillMarkdown(fs.readFileSync(sourceSkillMd, "utf8"))
-);
-copyFile(sourceScript, path.join(pluginRoot, "scripts", "token-billing-mcp.js"));
+function writePlugin(targetRoot) {
+  writeJson(path.join(targetRoot, ".codex-plugin", "plugin.json"), pluginJson);
+  writeJson(path.join(targetRoot, ".mcp.json"), mcpJson);
+  writeFile(
+    path.join(targetRoot, "skills", pluginName, "SKILL.md"),
+    pluginSkillMarkdown(fs.readFileSync(sourceSkillMd, "utf8"))
+  );
+  copyFile(sourceScript, path.join(targetRoot, "scripts", "token-billing-mcp.js"));
+}
 
-console.log(`Built ${path.relative(root, outRoot)}`);
+writeJson(path.join(repoMarketplaceRoot, ".agents", "plugins", "marketplace.json"), marketplace);
+writeJson(path.join(outRoot, "marketplace.json"), shareMarketplace);
+writePlugin(repoPluginRoot);
+writePlugin(sharePluginRoot);
+
+console.log(`Built ${path.relative(root, repoPluginRoot)} and ${path.relative(root, outRoot)}`);

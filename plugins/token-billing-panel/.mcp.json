@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "token-billing-panel": {
+      "command": "node",
+      "args": [
+        "./scripts/token-billing-mcp.js"
+      ]
+    }
+  }
+}
