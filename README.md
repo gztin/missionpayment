@@ -104,6 +104,8 @@ Plugin 版
 /mission model GPT-5.4
 /mission model GPT-5.3-Codex
 /mission model GPT-5.2
+/mission runtime
+/mission update
 ```
 
 - `/mission setup`：把 Mission Invoice 規則加入目前專案。
@@ -111,6 +113,8 @@ Plugin 版
 - `/mission off`：停用任務發票紀錄。
 - `/mission model list`：查看可用的參考模型。
 - `/mission model ...`：切換 credits 估算用的參考模型，預設為 `GPT-5.5`。
+- `/mission runtime`：查看目前使用的 Mission Invoice runtime 版本與路徑。
+- `/mission update`：更新本機 runtime override，用於發票邏輯、HTML 或資料處理 bugfix；不會改 plugin manifest。
 
 ## 產出內容
 
@@ -127,9 +131,21 @@ Plugin 版
 ~/.codex-token-billing/projects/<project-id>/usage-log.json
 ~/.codex-token-billing/projects/<project-id>/receipts/
 ~/.codex-token-billing/projects/<project-id>/receipts/index.html
+~/.codex-token-billing/runtime/mission-invoice-runtime.cjs
 ```
 
 `<project-id>` 會由專案的絕對路徑產生，因此不同專案預設不會共用發票紀錄。舊版全域帳本不會自動導入新專案。
+
+## 更新與重啟
+
+Mission Invoice 0.2.0 之後採用固定 MCP 外殼加可更新 runtime。一般發票邏輯、歷史頁 HTML、資料路徑 bugfix 可以透過 `/mission update` 寫入本機 runtime override，通常不需要重新安裝 plugin。
+
+仍建議重啟 Codex 或開新 thread 的情況：
+
+- 新增、移除或改名 skill。
+- 修改 `.codex-plugin/plugin.json`。
+- 修改 `.mcp.json` 或 MCP server 啟動方式。
+- 修改 marketplace metadata。
 
 ## 開發與發佈流程
 
@@ -150,6 +166,7 @@ plugins/token-billing-panel/
   .mcp.json
   skills/token-billing-panel/SKILL.md
   scripts/token-billing-mcp.js
+  runtime/mission-invoice-runtime.cjs
 
 dist/mission-invoice-share/
   marketplace.json
@@ -158,6 +175,7 @@ dist/mission-invoice-share/
     .mcp.json
     skills/token-billing-panel/SKILL.md
     scripts/token-billing-mcp.js
+    runtime/mission-invoice-runtime.cjs
 ```
 
 產出後建議驗證 plugin：

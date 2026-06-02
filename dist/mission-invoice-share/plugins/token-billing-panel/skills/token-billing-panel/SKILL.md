@@ -27,6 +27,8 @@ Support these user-facing commands:
 - `/mission off`: disable automatic receipt generation.
 - `/mission model <model>`: set the reference model used for credit estimates.
 - `/mission model list`: list supported reference models.
+- `/mission runtime`: show the active Mission Invoice runtime version and update guidance.
+- `/mission update`: download the latest runtime override for receipt logic fixes without changing plugin metadata.
 
 Supported reference models:
 
@@ -57,6 +59,8 @@ Available CLI commands:
 - `summary`
 - `mode`
 - `models`
+- `runtime`
+- `update`
 - `set-model`
 - `set-mode`
 - `setup-status`
@@ -66,6 +70,7 @@ Examples:
 
 ```bash
 node scripts/token-billing-mcp.js models "{}"
+node scripts/token-billing-mcp.js runtime "{}"
 node scripts/token-billing-mcp.js set-model "{\"model\":\"GPT-5.5\"}"
 node scripts/token-billing-mcp.js set-mode "{\"mode\":\"on\"}"
 ```
@@ -131,6 +136,22 @@ Before the final response of a token-consuming task:
 Use `historyUrl` when the user asks for historical bills or statistics.
 
 If actual runtime usage is unavailable, mark the receipt as estimated. Do not claim it is official billing data.
+
+## Runtime Updates
+
+The MCP entry script is a stable shell. It loads the bundled runtime from:
+
+```text
+runtime/mission-invoice-runtime.cjs
+```
+
+It also checks for a user-local override before each CLI command or MCP tool call:
+
+```text
+~/.codex-token-billing/runtime/mission-invoice-runtime.cjs
+```
+
+Use `/mission runtime` to inspect the active runtime path and version. Use `/mission update` only when the user asks to update Mission Invoice or when a bugfix is needed. Runtime updates can change receipt logic, generated HTML, and local data handling without reinstalling the plugin. A Codex restart or new thread is still recommended when plugin metadata, skill descriptions, MCP server configuration, or marketplace entries change.
 
 ## Static Receipt UI
 
