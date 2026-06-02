@@ -4,12 +4,12 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 const { pathToFileURL } = require("url");
 
 const DATA_DIR = process.env.TOKEN_BILLING_PANEL_DATA_DIR || path.join(os.homedir(), ".codex-token-billing");
-const LOG_FILE = path.join(DATA_DIR, "usage-log.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
-const RECEIPTS_DIR = path.join(DATA_DIR, "receipts");
+const PROJECTS_DIR = path.join(DATA_DIR, "projects");
 const SETUP_START = "<!-- mission-invoice:start -->";
 const SETUP_END = "<!-- mission-invoice:end -->";
 const DEFAULT_RATE_MODEL = "gpt-5.5";
@@ -37,9 +37,6 @@ const TOKEN_RATE_CARD = {
 
 function ensureStore() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(LOG_FILE)) {
-    fs.writeFileSync(LOG_FILE, JSON.stringify({ records: [] }, null, 2));
-  }
   if (!fs.existsSync(SETTINGS_FILE)) {
     fs.writeFileSync(
       SETTINGS_FILE,
@@ -96,6 +93,37 @@ function ensureStore() {
   }
 }
 
+function safeIdentifier(value, fallback = "project") {
+  return String(value || fallback)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || fallback;
+}
+
+function projectDataPaths(args = {}) {
+  const rawPath = args.projectPath || args.cwd || process.cwd();
+  const projectPath = path.resolve(String(rawPath));
+  const baseName = safeIdentifier(path.basename(projectPath), "project").slice(0, 40);
+  const hash = crypto.createHash("sha256").update(projectPath).digest("hex").slice(0, 12);
+  const projectId = args.projectId ? safeIdentifier(args.projectId) : `${baseName}-${hash}`;
+  const dataDir = path.join(PROJECTS_DIR, projectId);
+  return {
+    projectPath,
+    projectId,
+    dataDir,
+    logFile: path.join(dataDir, "usage-log.json"),
+    receiptsDir: path.join(dataDir, "receipts")
+  };
+}
+
+function ensureProjectStore(paths) {
+  ensureStore();
+  fs.mkdirSync(paths.dataDir, { recursive: true });
+  if (!fs.existsSync(paths.logFile)) {
+    fs.writeFileSync(paths.logFile, JSON.stringify({ projectPath: paths.projectPath, projectId: paths.projectId, records: [] }, null, 2));
+  }
+}
+
 function readJson(file, fallback) {
   ensureStore();
   try {
@@ -107,6 +135,7 @@ function readJson(file, fallback) {
 
 function writeJson(file, value) {
   ensureStore();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
@@ -254,10 +283,11 @@ function safeReceiptFilename(receiptNo, id) {
   return `${base || "receipt"}.html`;
 }
 
-function writeStaticReceipt(record) {
-  fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
+function writeStaticReceipt(record, paths = projectDataPaths({ projectPath: record?.projectPath })) {
+  ensureProjectStore(paths);
+  fs.mkdirSync(paths.receiptsDir, { recursive: true });
   const receiptNo = record?.receipt?.receiptNo || record?.id;
-  const receiptFile = path.join(RECEIPTS_DIR, safeReceiptFilename(receiptNo, record?.id));
+  const receiptFile = path.join(paths.receiptsDir, safeReceiptFilename(receiptNo, record?.id));
   fs.writeFileSync(receiptFile, receiptPageHtml(record, { static: true }), "utf8");
   return {
     receiptFile,
@@ -299,7 +329,7 @@ function displayModelForRecord(record = {}) {
   return spend.rateModelDisplayName || receipt.model || record.model || "Unknown";
 }
 
-function summarize(records) {
+function summarize(records, paths = projectDataPaths({})) {
   const settings = readJson(SETTINGS_FILE, {});
   const todayKey = new Date().toISOString().slice(0, 10);
   const totals = {
@@ -378,8 +408,12 @@ function summarize(records) {
   const remainingTokens = Math.max(0, monthlyTokenBudget - totals.totalTokens);
   return {
     generatedAt: new Date().toISOString(),
-    dataDir: DATA_DIR,
-    logFile: LOG_FILE,
+    dataDir: paths.dataDir,
+    logFile: paths.logFile,
+    project: {
+      id: paths.projectId,
+      path: paths.projectPath
+    },
     totals,
     today,
     rateCard: {
@@ -403,9 +437,11 @@ function summarize(records) {
   };
 }
 
-function getUsageSummary() {
-  const data = readJson(LOG_FILE, { records: [] });
-  return summarize(Array.isArray(data.records) ? data.records.map(withTokenSpend) : []);
+function getUsageSummary(args = {}) {
+  const paths = projectDataPaths(args);
+  ensureProjectStore(paths);
+  const data = readJson(paths.logFile, { records: [] });
+  return summarize(Array.isArray(data.records) ? data.records.map(withTokenSpend) : [], paths);
 }
 
 function withTokenSpend(record) {
@@ -425,10 +461,12 @@ function withTokenSpend(record) {
   };
 }
 
-function getUsageRecords() {
-  const data = readJson(LOG_FILE, { records: [] });
+function getUsageRecords(args = {}) {
+  const paths = projectDataPaths(args);
+  ensureProjectStore(paths);
+  const data = readJson(paths.logFile, { records: [] });
   const records = Array.isArray(data.records) ? data.records.map(withTokenSpend) : [];
-  return { ...data, records };
+  return { ...data, projectPath: paths.projectPath, projectId: paths.projectId, records };
 }
 
 function getInvoiceMode() {
@@ -549,7 +587,9 @@ function recordTaskUsage(args = {}) {
       message: "Mission Invoice is OFF; receipt generation was skipped."
     };
   }
-  const data = readJson(LOG_FILE, { records: [] });
+  const paths = projectDataPaths(args);
+  ensureProjectStore(paths);
+  const data = readJson(paths.logFile, { projectPath: paths.projectPath, projectId: paths.projectId, records: [] });
   const estimate = args.estimate && typeof args.estimate === "object" ? args.estimate : null;
   const inputTokens = Number(args.inputTokens ?? estimate?.inputTokens ?? 0);
   const outputTokens = Number(args.outputTokens ?? estimate?.outputTokens ?? 0);
@@ -568,6 +608,8 @@ function recordTaskUsage(args = {}) {
   const record = {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     createdAt: new Date().toISOString(),
+    projectPath: paths.projectPath,
+    projectId: paths.projectId,
     task: args.task || args.title || "Untitled task",
     category: args.category || estimate?.taskType || "uncategorized",
     model,
@@ -598,14 +640,16 @@ function recordTaskUsage(args = {}) {
     },
     estimate: estimate || undefined
   };
-  const staticReceipt = writeStaticReceipt(record);
+  const staticReceipt = writeStaticReceipt(record, paths);
   record.receiptFile = staticReceipt.receiptFile;
   record.receiptFileUrl = staticReceipt.receiptFileUrl;
   record.receiptUrl = record.receiptFileUrl;
   data.records = Array.isArray(data.records) ? data.records : [];
+  data.projectPath = paths.projectPath;
+  data.projectId = paths.projectId;
   data.records.push(record);
-  writeJson(LOG_FILE, data);
-  const history = writeStaticHistory(data.records);
+  writeJson(paths.logFile, data);
+  const history = writeStaticHistory(data.records, paths);
   return {
     record,
     receiptUrl: record.receiptUrl,
@@ -613,7 +657,7 @@ function recordTaskUsage(args = {}) {
     receiptFileUrl: record.receiptFileUrl,
     historyUrl: history.historyFileUrl,
     historyFile: history.historyFile,
-    summary: getUsageSummary()
+    summary: getUsageSummary(args)
   };
 }
 
@@ -638,14 +682,18 @@ function setReferenceModel(args = {}) {
   };
 }
 
-function getLatestReceipt() {
-  const data = readJson(LOG_FILE, { records: [] });
+function getLatestReceipt(args = {}) {
+  const paths = projectDataPaths(args);
+  ensureProjectStore(paths);
+  const data = readJson(paths.logFile, { records: [] });
   const records = Array.isArray(data.records) ? data.records : [];
   return records.slice().reverse().find((record) => record.receipt) || null;
 }
 
-function getReceiptById(id) {
-  const data = readJson(LOG_FILE, { records: [] });
+function getReceiptById(id, args = {}) {
+  const paths = projectDataPaths(args);
+  ensureProjectStore(paths);
+  const data = readJson(paths.logFile, { records: [] });
   const records = Array.isArray(data.records) ? data.records : [];
   return records.find((record) => record.id === id) || null;
 }
@@ -776,17 +824,17 @@ function receiptPageHtml(record) {
 </html>`;
 }
 
-function historyPageHtml(records) {
+function historyPageHtml(records, paths = projectDataPaths({})) {
   const normalized = Array.isArray(records) ? records.map(withTokenSpend) : [];
-  const summary = summarize(normalized);
+  const summary = summarize(normalized, paths);
   const rows = normalized.slice().reverse().map((record) => {
     const receipt = record.receipt || {};
     const receiptNo = receipt.receiptNo || record.id || "-";
-    return `<tr><td><strong>${escapeHtml(receiptNo)}</strong></td><td class="num">${escapeHtml(Number(record.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</td><td><a class="view-link" href="${escapeHtml(receiptHrefFor(record))}">?亦?</a></td></tr>`;
+    return `<tr><td><strong>${escapeHtml(receiptNo)}</strong></td><td class="num">${escapeHtml(Number(record.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</td><td><a class="view-link" href="${escapeHtml(receiptHrefFor(record))}">查看</a></td></tr>`;
   }).join("");
   const stats = summary.models.map((model) => {
     const categoryRows = model.categories.map((category) => `<tr><td>${escapeHtml(category.category)}</td><td class="num">${escapeHtml(Number(category.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</td><td class="num">${escapeHtml(Number(category.records || 0).toLocaleString("zh-Hant-TW"))}</td></tr>`).join("");
-    return `<section class="model-block"><div class="model-head"><h3>${escapeHtml(model.model)}</h3><span>${escapeHtml(Number(model.totalTokens || 0).toLocaleString("zh-Hant-TW"))} tokens</span></div><table><thead><tr><th>隞餃?憿?</th><th class="num">Token</th><th class="num">蝑</th></tr></thead><tbody>${categoryRows || '<tr><td colspan="3">瘝?蝝??/td></tr>'}</tbody></table></section>`;
+    return `<section class="model-block"><div class="model-head"><h3>${escapeHtml(model.model)}</h3><span>${escapeHtml(Number(model.totalTokens || 0).toLocaleString("zh-Hant-TW"))} tokens</span></div><table><thead><tr><th>任務類型</th><th class="num">Token</th><th class="num">筆數</th></tr></thead><tbody>${categoryRows || '<tr><td colspan="3">尚無統計資料</td></tr>'}</tbody></table></section>`;
   }).join("");
   return `<!doctype html>
 <html lang="zh-Hant">
@@ -827,8 +875,8 @@ function historyPageHtml(records) {
 <body>
   <header><h1>Mission Invoice</h1></header>
   <main>
-    <section class="panel" data-view-panel="history"><div class="panel-head"><h2>甇瑕撣喳</h2><span class="count">撣喳蝑 ${escapeHtml(summary.totals.records.toLocaleString("zh-Hant-TW"))}</span></div><p class="desc">?＊蝷箇蟡函??? token ?梯祥??a href="#stats" data-view="stats">?亦?蝯梯?鞈?</a></p><table><thead><tr><th>?潛巨?Ⅳ</th><th class="num">Token ?梯祥</th><th>?亦?</th></tr></thead><tbody>${rows || '<tr><td colspan="3">?桀?瘝?撣喳蝝??/td></tr>'}</tbody></table></section>
-    <section class="panel" data-view-panel="stats"><div class="panel-head"><h2>蝯梯?鞈?</h2></div><p class="desc">靘芋??蝔勗???隞餃?憿???token 蝯梯???a href="#history" data-view="history">?甇瑕撣喳</a></p><div class="metric"><span>蝮賣???token</span><strong>${escapeHtml(summary.totals.totalTokens.toLocaleString("zh-Hant-TW"))}</strong></div>${stats || '<p>?桀?瘝?蝯梯?鞈?</p>'}</section>
+    <section class="panel" data-view-panel="history"><div class="panel-head"><h2>歷史帳單</h2><span class="count">帳單數量 ${escapeHtml(summary.totals.records.toLocaleString("zh-Hant-TW"))}</span></div><p class="desc">查看每張任務發票的 token 花費，或切換到 <a href="#stats" data-view="stats">統計資訊</a></p><table><thead><tr><th>發票號碼</th><th class="num">Token 花費</th><th>查看</th></tr></thead><tbody>${rows || '<tr><td colspan="3">尚無發票紀錄</td></tr>'}</tbody></table></section>
+    <section class="panel" data-view-panel="stats"><div class="panel-head"><h2>統計資訊</h2></div><p class="desc">依模型與任務類型統計 token 使用量。<a href="#history" data-view="history">返回歷史帳單</a></p><div class="metric"><span>總消耗 token</span><strong>${escapeHtml(summary.totals.totalTokens.toLocaleString("zh-Hant-TW"))}</strong></div>${stats || '<p>尚無統計資料</p>'}</section>
   </main>
   <script>
     function setHistoryView(view) {
@@ -842,17 +890,18 @@ function historyPageHtml(records) {
 </body>
 </html>`;
 }
-function writeStaticHistory(records) {
-  fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
+function writeStaticHistory(records, paths = projectDataPaths({})) {
+  ensureProjectStore(paths);
+  fs.mkdirSync(paths.receiptsDir, { recursive: true });
   const allRecords = Array.isArray(records) ? records.map(withTokenSpend) : [];
   for (const item of allRecords) {
     if (item.receipt) {
-      const file = path.join(RECEIPTS_DIR, receiptFilenameFor(item));
+      const file = path.join(paths.receiptsDir, receiptFilenameFor(item));
       fs.writeFileSync(file, receiptPageHtml(item), "utf8");
     }
   }
-  const historyFile = path.join(RECEIPTS_DIR, "index.html");
-  fs.writeFileSync(historyFile, historyPageHtml(allRecords), "utf8");
+  const historyFile = path.join(paths.receiptsDir, "index.html");
+  fs.writeFileSync(historyFile, historyPageHtml(allRecords, paths), "utf8");
   return { historyFile, historyFileUrl: pathToFileURL(historyFile).href };
 }
 
@@ -879,6 +928,7 @@ const tools = [
       type: "object",
       properties: {
         task: { type: "string" },
+        projectPath: { type: "string", description: "Absolute path to the project root. Defaults to the MCP process working directory." },
         category: { type: "string" },
         model: { type: "string" },
         startedAt: { type: "string" },
@@ -901,7 +951,12 @@ const tools = [
   {
     name: "get_usage_summary",
     description: "Return local token usage totals, recent records, and category breakdown.",
-    inputSchema: { type: "object", properties: {} }
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectPath: { type: "string", description: "Absolute path to the project root. Defaults to the MCP process working directory." }
+      }
+    }
   },
   {
     name: "get_invoice_mode",
@@ -970,7 +1025,7 @@ function sendMessage(message) {
 async function callTool(name, args) {
   if (name === "estimate_plan_cost") return estimatePlanCost(args);
   if (name === "record_task_usage") return recordTaskUsage(args);
-  if (name === "get_usage_summary") return getUsageSummary();
+  if (name === "get_usage_summary") return getUsageSummary(args);
   if (name === "get_invoice_mode") return getInvoiceMode();
   if (name === "get_reference_models") return { referenceModel: getReferenceModelInfo(), models: listReferenceModels(), command: "/mission model <model>" };
   if (name === "set_reference_model") return setReferenceModel(args);

@@ -2,10 +2,12 @@
 
 Mission Invoice 是 Codex 專用的小插件，會把每次 AI 協作消耗的 token 與 credits 統計成一張本機電子發票，並提供歷史帳單與簡單統計資訊。
 
-所有資料都只儲存在本機：
+所有資料都只儲存在本機；設定是全域共用，發票紀錄與歷史帳單會依專案路徑分開：
 
 ```text
-~/.codex-token-billing
+~/.codex-token-billing/settings.json
+~/.codex-token-billing/projects/<project-id>/usage-log.json
+~/.codex-token-billing/projects/<project-id>/receipts/
 ```
 
 ## 快速安裝
@@ -121,11 +123,13 @@ Plugin 版
 ## 資料位置
 
 ```text
-~/.codex-token-billing/usage-log.json
 ~/.codex-token-billing/settings.json
-~/.codex-token-billing/receipts/
-~/.codex-token-billing/receipts/index.html
+~/.codex-token-billing/projects/<project-id>/usage-log.json
+~/.codex-token-billing/projects/<project-id>/receipts/
+~/.codex-token-billing/projects/<project-id>/receipts/index.html
 ```
+
+`<project-id>` 會由專案的絕對路徑產生，因此不同專案預設不會共用發票紀錄。舊版全域帳本不會自動導入新專案。
 
 ## 開發與發佈流程
 

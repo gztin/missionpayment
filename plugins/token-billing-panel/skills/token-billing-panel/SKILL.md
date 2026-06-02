@@ -7,11 +7,16 @@ description: Estimate planned Codex token usage, record Mission Invoice static r
 
 Use this skill for every Codex interaction that consumes tokens unless Mission Invoice is disabled.
 
-Mission Invoice records estimated token and credits usage as local static HTML receipts. All data stays on the user's machine in:
+Mission Invoice records estimated token and credits usage as local static HTML receipts. Settings are global, while ledgers and receipts are separated by project path. All data stays on the user's machine in:
 
 ```text
-~/.codex-token-billing
+~/.codex-token-billing/settings.json
+~/.codex-token-billing/projects/<project-id>/usage-log.json
+~/.codex-token-billing/projects/<project-id>/receipts/
+~/.codex-token-billing/projects/<project-id>/receipts/index.html
 ```
+
+`<project-id>` is generated from the absolute project path, so two projects do not share receipt history by default. Older global ledger files are not imported into a new project automatically.
 
 ## Commands
 
@@ -120,7 +125,7 @@ Before the final response of a token-consuming task:
 4. Use the returned `receiptUrl` in the final response as a clickable Markdown link with this exact text:
 
    ```markdown
-   [本次mission payment](file:///.../.codex-token-billing/receipts/TX-....html)
+   [本次mission payment](file:///.../.codex-token-billing/projects/<project-id>/receipts/TX-....html)
    ```
 
 Use `historyUrl` when the user asks for historical bills or statistics.
