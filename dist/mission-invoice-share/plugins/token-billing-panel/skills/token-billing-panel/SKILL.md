@@ -7,18 +7,20 @@ description: Estimate planned Codex token usage, record Mission Invoice static r
 
 Use this skill for every Codex interaction that consumes tokens unless Mission Invoice is disabled.
 
-General tasks do not require any prefix. Complete the task normally, then generate a Mission Invoice receipt before the final response.
+Mission Invoice records estimated token and credits usage as local static HTML receipts. All data stays on the user's machine in:
 
-## Invoice Mode
+```text
+~/.codex-token-billing
+```
 
-Mission Invoice is ON by default when this plugin is active.
+## Commands
 
-Supported commands:
+Support these user-facing commands:
 
+- `/mission setup`: ask before adding Mission Invoice rules to the current project's `AGENTS.md`.
 - `/mission on`: enable automatic receipt generation.
 - `/mission off`: disable automatic receipt generation.
-- `/mission setup`: ask before adding Mission Invoice rules to the current project's `AGENTS.md`.
-- `/mission model <model>`: set the reference model for credit estimates.
+- `/mission model <model>`: set the reference model used for credit estimates.
 - `/mission model list`: list supported reference models.
 
 Supported reference models:
@@ -30,15 +32,65 @@ Supported reference models:
 
 Default reference model: `GPT-5.5`.
 
+## Use The Script
+
+The bundled script is:
+
+```text
+scripts/token-billing-mcp.js
+```
+
+It can run as an MCP stdio server, but in generic skill installs it is easiest to call its CLI mode:
+
+```bash
+node scripts/token-billing-mcp.js <command> '<json-args>'
+```
+
+Available CLI commands:
+
+- `record` or `record-task`
+- `summary`
+- `mode`
+- `models`
+- `set-model`
+- `set-mode`
+- `setup-status`
+- `setup`
+
+Examples:
+
+```bash
+node scripts/token-billing-mcp.js models "{}"
+node scripts/token-billing-mcp.js set-model "{\"model\":\"GPT-5.5\"}"
+node scripts/token-billing-mcp.js set-mode "{\"mode\":\"on\"}"
+```
+
+On Windows PowerShell, prefer single quotes around JSON:
+
+```powershell
+node scripts/token-billing-mcp.js set-model '{"model":"GPT-5.5"}'
+```
+
+When running from outside the skill folder, use the absolute path to `scripts/token-billing-mcp.js`.
+
 ## Project Setup
 
 Mission Invoice must not silently modify project instructions.
 
 For `/mission setup`:
 
-1. Check whether the current project already has the Mission Invoice rule.
-2. If not, ask the user for explicit confirmation.
-3. Only after confirmation, write or refresh the marked block in `AGENTS.md`.
+1. Check whether the current project already has the Mission Invoice rule:
+
+   ```bash
+   node scripts/token-billing-mcp.js setup-status "{\"projectPath\":\"<absolute-project-path>\"}"
+   ```
+
+2. If the rule is missing or stale, ask the user for explicit confirmation.
+3. Only after the user agrees, write or refresh the marked block:
+
+   ```bash
+   node scripts/token-billing-mcp.js setup "{\"projectPath\":\"<absolute-project-path>\",\"confirmed\":true}"
+   ```
 
 The block is bounded by:
 
@@ -50,47 +102,41 @@ The block is bounded by:
 
 ## Recording Workflow
 
-Before the final response of a token-consuming interaction:
+Before the final response of a token-consuming task:
 
-1. Check invoice mode when the tool is available.
-2. If Mission Invoice is OFF, do not record a receipt and mention `/mission off` mode.
-3. If ON, call `record_task_usage`.
-4. Include task title, category, model when known, elapsed time when known, token estimates, and line items when possible.
-5. If actual usage is unavailable, mark the receipt as estimated.
-6. Include the returned receipt link in the final response as a clickable Markdown link with this text:
+1. Check whether Mission Invoice is enabled:
 
-```markdown
-[本次mission payment](file:///.../.codex-token-billing/receipts/TX-....html)
-```
+   ```bash
+   node scripts/token-billing-mcp.js mode "{}"
+   ```
 
-Use `historyUrl` when the user asks for historical bills.
+2. If disabled, do not record a receipt and mention that `/mission off` is active.
+3. If enabled, record the task:
+
+   ```bash
+   node scripts/token-billing-mcp.js record '{"projectPath":"<absolute-project-path>","task":"<short task title>","taskType":"coding","model":"GPT-5.5","inputTokens":0,"outputTokens":0,"elapsedMs":0,"notes":"Estimated from visible task context."}'
+   ```
+
+4. Use the returned `receiptUrl` in the final response as a clickable Markdown link with this exact text:
+
+   ```markdown
+   [本次mission payment](file:///.../.codex-token-billing/receipts/TX-....html)
+   ```
+
+Use `historyUrl` when the user asks for historical bills or statistics.
+
+If actual runtime usage is unavailable, mark the receipt as estimated. Do not claim it is official billing data.
 
 ## Static Receipt UI
 
-Generated receipts are static HTML files stored locally.
-
-Receipt behavior:
+Generated receipts are static HTML files:
 
 - Chinese-only UI.
 - No language toggle.
-- Footer links:
+- Receipt footer links:
   - `歷史帳單` opens `index.html#history`.
   - `統計資訊` opens `index.html#stats`.
-
-History behavior:
-
-- `歷史帳單` shows receipt number, token spend, and a view link.
-- `統計資訊` shows total token usage and task-type token statistics grouped by model name.
-- The page is static and does not require a local server.
-
-## Data Location
-
-```text
-~/.codex-token-billing/usage-log.json
-~/.codex-token-billing/settings.json
-~/.codex-token-billing/receipts/
-~/.codex-token-billing/receipts/index.html
-```
+- The static pages do not require a local dashboard server.
 
 ## Categories
 

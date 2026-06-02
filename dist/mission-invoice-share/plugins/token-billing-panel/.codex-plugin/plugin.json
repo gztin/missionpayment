@@ -1,29 +1,30 @@
 {
   "name": "token-billing-panel",
   "version": "0.1.0+codex.20260601083233",
-  "description": "Mission Invoice \u6703\u70ba Codex \u5c08\u6848\u7522\u751f\u672c\u6a5f Token \u96fb\u5b50\u767c\u7968\uff0c\u652f\u63f4 /mission setup \u5c08\u6848\u521d\u59cb\u5316\uff0c\u4e26\u53ef\u7528 /mission on \u6216 /mission off \u5207\u63db\u3002",
+  "description": "Mission Invoice 會為 Codex 專案產生本機 Token 電子發票，支援 /mission setup 專案初始化，並可用 /mission on 或 /mission off 切換。",
   "author": {
-    "name": "\u672c\u6a5f\u958b\u767c\u8005"
+    "name": "本機開發者"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Mission Invoice",
-    "shortDescription": "\u81ea\u52d5\u958b\u7acb Token \u96fb\u5b50\u767c\u7968\uff0c\u652f\u63f4 /mission setup \u5c08\u6848\u521d\u59cb\u5316\u8207 /mission on/off \u958b\u95dc\u3002",
-    "longDescription": "Mission Invoice \u6703\u5728 Codex \u4efb\u52d9\u6d88\u8017 token \u5f8c\uff0c\u900f\u904e\u672c\u6a5f MCP \u6d41\u7a0b\u8a18\u9304\u4e00\u5f35\u4f30\u7b97\u7684 Token \u96fb\u5b50\u767c\u7968\uff0c\u5167\u5bb9\u5305\u542b\u6a21\u578b\u3001\u8017\u6642\u3001\u660e\u7d30\u9805\u76ee\u8207\u767c\u7968\u7db2\u5740\u3002\u4e00\u822c\u4efb\u52d9\u4e0d\u9700\u8981\u52a0\u4efb\u4f55\u524d\u7db4\uff1b\u53ea\u8981 Mission Invoice \u70ba ON\uff0c\u5c31\u6703\u5728\u4efb\u52d9\u5b8c\u6210\u524d\u81ea\u52d5\u958b\u7acb\u767c\u7968\u4e26\u5728\u56de\u8986\u4e2d\u9644\u4e0a\u9023\u7d50\u3002\u5c08\u6848\u7b2c\u4e00\u6b21\u4f7f\u7528\u6642\u53ef\u57f7\u884c /mission setup\uff1a\u5916\u639b\u6703\u5148\u8a62\u554f\u662f\u5426\u5c07 Mission Invoice \u898f\u5247\u52a0\u5165\u8a72\u5c08\u6848\u7684 AGENTS.md\uff0c\u53ea\u6709\u5728\u4f7f\u7528\u8005\u540c\u610f\u5f8c\u624d\u6703\u5beb\u5165\uff0c\u4e14\u6703\u4f7f\u7528\u53ef\u8fa8\u8b58\u5340\u584a\u907f\u514d\u91cd\u8907\u3002\u53ea\u6709\u5207\u63db\u958b\u7968\u529f\u80fd\u6642\u624d\u9700\u8981\u4f7f\u7528\u6307\u4ee4\uff1a/mission on \u6703\u958b\u555f\u81ea\u52d5\u958b\u7968\uff0c/mission off \u6703\u95dc\u9589\u81ea\u52d5\u958b\u7968\u3002\u820a\u6307\u4ee4 /Token Billing Invoice\u3001/Token Billing texfree\u3001/Token Billing taxfree \u4ecd\u66ab\u6642\u76f8\u5bb9\u3002\u5916\u639b\u4e5f\u63d0\u4f9b\u672c\u6a5f Dashboard\uff0c\u53ef\u67e5\u770b\u6b77\u53f2\u5e33\u55ae\u3001\u55ae\u5f35\u767c\u7968\u660e\u7d30\uff0c\u4ee5\u53ca\u9322\u5305\u5f0f\u7684 Token \u9810\u7b97\u8207\u5269\u9918\u91cf\u3002\u6240\u6709\u7d00\u9304\u90fd\u53ea\u5132\u5b58\u5728\u672c\u6a5f ~/.codex-token-billing\u3002\u6b64\u63d2\u4ef6\u4e0d\u6703\u8b80\u53d6\u5b98\u65b9 Codex \u5e33\u865f\u65b9\u6848\u3001\u5be6\u969b\u7528\u91cf\u6216\u5e33\u55ae\u8cc7\u6599\u3002",
-    "developerName": "\u672c\u6a5f\u958b\u767c\u8005",
-    "category": "\u751f\u7522\u529b",
+    "shortDescription": "自動開立 Token 電子發票，支援 /mission setup 專案初始化與 /mission on/off 開關。",
+    "longDescription": "Mission Invoice 會在 Codex 任務消耗 token 後，透過本機 MCP 流程記錄一張估算的 Token 電子發票，內容包含模型、耗時、明細項目與發票連結。一般任務不需要加任何前綴；只要 Mission Invoice 為 ON，就會在任務完成前自動開立發票並在回覆中附上連結。專案第一次使用時可執行 /mission setup：外掛會先詢問是否將 Mission Invoice 規則加入該專案的 AGENTS.md，只有在使用者同意後才會寫入，且會使用可辨識區塊避免重複。只有切換開票功能時才需要使用指令：/mission on 會開啟自動開票，/mission off 會關閉自動開票。/mission model list 可查看支援的參考模型，/mission model <model> 可切換 credits 估算用的參考費率。外掛會產生本機靜態 HTML 發票、歷史帳單與統計資訊，不需要啟動本機 dashboard server。所有紀錄都只儲存在本機 ~/.codex-token-billing。此插件不會讀取官方 Codex 帳號方案、實際用量或帳單資料。",
+    "developerName": "本機開發者",
+    "category": "生產力",
     "capabilities": [
-      "\u4e92\u52d5\u5f0f",
-      "\u8b80\u53d6",
-      "\u5beb\u5165"
+      "互動式",
+      "讀取",
+      "寫入"
     ],
     "defaultPrompt": [
       "/mission on",
       "/mission off",
       "/mission setup",
-      "\u6253\u958b\u6211\u6700\u65b0\u7684 Mission Invoice\u3002",
-      "\u986f\u793a\u6211\u7684 Mission Invoice Dashboard\u3002",
-      "\u4f30\u7b97\u9019\u6b21\u4efb\u52d9\u7684 Mission Invoice\u3002"
+      "/mission model list",
+      "打開我最新的 Mission Invoice。",
+      "顯示我的 Mission Invoice 歷史帳單。",
+      "估算這次任務的 Mission Invoice。"
     ]
   },
   "mcpServers": "./.mcp.json"

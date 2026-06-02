@@ -1032,29 +1032,75 @@ function extractMessages() {
   return messages.filter(Boolean);
 }
 
-process.stdin.on("data", (chunk) => {
-  buffer = Buffer.concat([buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
-  for (const rawMessage of extractMessages()) {
-    let request;
-    try {
-      request = JSON.parse(rawMessage);
-    } catch (error) {
-      continue;
-    }
-    handle(request)
-      .then((result) => {
-        if (request.id === undefined) return;
-        sendMessage({ jsonrpc: "2.0", id: request.id, result });
-      })
-      .catch((error) => {
-        if (request.id === undefined) return;
-        sendMessage({
-          jsonrpc: "2.0",
-          id: request.id,
-          error: { code: -32000, message: error.message }
-        });
-      });
+const cliAliases = {
+  estimate: "estimate_plan_cost",
+  "record-task": "record_task_usage",
+  record: "record_task_usage",
+  summary: "get_usage_summary",
+  mode: "get_invoice_mode",
+  models: "get_reference_models",
+  "set-model": "set_reference_model",
+  "set-mode": "set_invoice_mode",
+  "setup-status": "get_project_setup_status",
+  setup: "setup_project_instructions"
+};
+
+function parseCliArgs() {
+  const command = process.argv[2];
+  const rawJson = process.argv[3] || "{}";
+  if (!command) return null;
+  const toolName = cliAliases[command] || command;
+  let args;
+  try {
+    args = JSON.parse(rawJson);
+  } catch (error) {
+    throw new Error(`Invalid JSON arguments: ${error.message}`);
   }
-});
+  return { toolName, args };
+}
+
+async function runCli() {
+  const parsed = parseCliArgs();
+  if (!parsed) return false;
+  const result = await callTool(parsed.toolName, parsed.args);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  return true;
+}
+
+function runMcpServer() {
+  process.stdin.on("data", (chunk) => {
+    buffer = Buffer.concat([buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
+    for (const rawMessage of extractMessages()) {
+      let request;
+      try {
+        request = JSON.parse(rawMessage);
+      } catch (error) {
+        continue;
+      }
+      handle(request)
+        .then((result) => {
+          if (request.id === undefined) return;
+          sendMessage({ jsonrpc: "2.0", id: request.id, result });
+        })
+        .catch((error) => {
+          if (request.id === undefined) return;
+          sendMessage({
+            jsonrpc: "2.0",
+            id: request.id,
+            error: { code: -32000, message: error.message }
+          });
+        });
+    }
+  });
+}
 
 ensureStore();
+
+runCli()
+  .then((handled) => {
+    if (!handled) runMcpServer();
+  })
+  .catch((error) => {
+    process.stderr.write(`${error.message}\n`);
+    process.exit(1);
+  });

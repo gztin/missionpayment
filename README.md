@@ -127,6 +127,35 @@ Plugin 版
 ~/.codex-token-billing/receipts/index.html
 ```
 
+## 開發與發佈流程
+
+本 repo 以 `skills/mission-invoice` 作為主要功能來源。Skill 版直接由這個資料夾安裝；Plugin Marketplace 版則由 build script 產生到 `dist/mission-invoice-share`。
+
+重新產生分享市集：
+
+```bash
+node scripts/build_plugin_share.js
+```
+
+產出結構：
+
+```text
+dist/mission-invoice-share/
+  marketplace.json
+  plugins/token-billing-panel/
+    .codex-plugin/plugin.json
+    .mcp.json
+    skills/token-billing-panel/SKILL.md
+    scripts/token-billing-mcp.js
+```
+
+產出後建議驗證 plugin：
+
+```bash
+python3 /Users/ggt/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
+  /Users/ggt/Documents/GitHub/missionpayment/dist/mission-invoice-share/plugins/token-billing-panel
+```
+
 ## 問題排解
 
 ### npx 不是內部或外部命令
