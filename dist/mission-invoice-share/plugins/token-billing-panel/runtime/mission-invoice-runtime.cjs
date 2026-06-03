@@ -8,7 +8,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { fileURLToPath, pathToFileURL } = require("url");
 
-const MISSION_INVOICE_RUNTIME_VERSION = "0.2.0";
+const MISSION_INVOICE_RUNTIME_VERSION = "0.2.1";
 const DATA_DIR = process.env.TOKEN_BILLING_PANEL_DATA_DIR || path.join(os.homedir(), ".codex-token-billing");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const PROJECTS_DIR = path.join(DATA_DIR, "projects");
@@ -582,6 +582,14 @@ function setInvoiceMode(args = {}) {
   };
 }
 
+function hasMeaningfulReceiptInput(args = {}, estimate = null, tokens = {}) {
+  const task = String(args.task || args.title || "").trim();
+  const hasEstimate = estimate && Object.keys(estimate).length > 0;
+  const hasLineItems = Array.isArray(args.lineItems) && args.lineItems.length > 0;
+  const tokenTotal = Number(tokens.totalTokens || 0) + Number(tokens.inputTokens || 0) + Number(tokens.outputTokens || 0) + Number(tokens.cachedInputTokens || 0);
+  return Boolean(task || hasEstimate || hasLineItems || tokenTotal > 0);
+}
+
 function recordTaskUsage(args = {}) {
   const mode = getInvoiceMode();
   if (mode.invoiceEnabled === false && args.force !== true) {
@@ -592,14 +600,23 @@ function recordTaskUsage(args = {}) {
       message: "Mission Invoice is OFF; receipt generation was skipped."
     };
   }
-  const paths = projectDataPaths(args);
-  ensureProjectStore(paths);
-  const data = readJson(paths.logFile, { projectPath: paths.projectPath, projectId: paths.projectId, records: [] });
   const estimate = args.estimate && typeof args.estimate === "object" ? args.estimate : null;
   const inputTokens = Number(args.inputTokens ?? estimate?.inputTokens ?? 0);
   const outputTokens = Number(args.outputTokens ?? estimate?.outputTokens ?? 0);
   const totalTokens = Number(args.totalTokens ?? estimate?.totalTokens ?? inputTokens + outputTokens);
   const cachedInputTokens = Number(args.cachedInputTokens ?? estimate?.cachedInputTokens ?? 0);
+  if (args.forceEmpty !== true && !hasMeaningfulReceiptInput(args, estimate, { inputTokens, outputTokens, totalTokens, cachedInputTokens })) {
+    return {
+      skipped: true,
+      invoiceEnabled: mode.invoiceEnabled !== false,
+      receiptUrl: null,
+      errorCode: "MISSION_INVOICE_EMPTY_RECORD",
+      message: "Mission Invoice skipped an empty receipt request. Provide task/title plus token estimates, estimate, or lineItems; use forceEmpty=true only for an intentional 0-token test receipt."
+    };
+  }
+  const paths = projectDataPaths(args);
+  ensureProjectStore(paths);
+  const data = readJson(paths.logFile, { projectPath: paths.projectPath, projectId: paths.projectId, records: [] });
   const startedAt = args.startedAt || undefined;
   const endedAt = args.endedAt || new Date().toISOString();
   const durationMs = msFromArgs({ ...args, endedAt });
@@ -1038,7 +1055,8 @@ const tools = [
         lineItems: { type: "array" },
         paymentType: { type: "string" },
         estimate: { type: "object" },
-        force: { type: "boolean", description: "Record a receipt even when invoice mode is disabled." }
+        force: { type: "boolean", description: "Record a receipt even when invoice mode is disabled." },
+        forceEmpty: { type: "boolean", description: "Allow an intentional 0-token test receipt. Do not use for normal task records." }
       }
     }
   },
