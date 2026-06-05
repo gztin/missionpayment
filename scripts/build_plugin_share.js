@@ -11,7 +11,7 @@ const pluginName = "token-billing-panel";
 const repoMarketplaceRoot = root;
 const repoPluginRoot = path.join(root, "plugins", pluginName);
 const sharePluginRoot = path.join(outRoot, "plugins", pluginName);
-const pluginVersion = "0.2.1+codex.20260603082200";
+const pluginVersion = "0.2.2+codex.20260605090300";
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });

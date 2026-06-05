@@ -8,7 +8,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { fileURLToPath, pathToFileURL } = require("url");
 
-const MISSION_INVOICE_RUNTIME_VERSION = "0.2.1";
+const MISSION_INVOICE_RUNTIME_VERSION = "0.2.2";
 const DATA_DIR = process.env.TOKEN_BILLING_PANEL_DATA_DIR || path.join(os.homedir(), ".codex-token-billing");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const PROJECTS_DIR = path.join(DATA_DIR, "projects");
@@ -26,6 +26,10 @@ const MODEL_ALIASES = {
   "5.4": "gpt-5.4",
   "gpt-5.4": "gpt-5.4",
   "gpt5.4": "gpt-5.4",
+  "5.4-mini": "gpt-5.4-mini",
+  "gpt-5.4-mini": "gpt-5.4-mini",
+  "gpt5.4-mini": "gpt-5.4-mini",
+  "gpt-5.4 mini": "gpt-5.4-mini",
   "5.3-codex": "gpt-5.3-codex",
   "gpt-5.3-codex": "gpt-5.3-codex",
   "gpt5.3-codex": "gpt-5.3-codex",
@@ -36,6 +40,7 @@ const MODEL_ALIASES = {
 const TOKEN_RATE_CARD = {
   "gpt-5.5": { displayName: "GPT-5.5", input: 125, cachedInput: 12.5, output: 750 },
   "gpt-5.4": { displayName: "GPT-5.4", input: 62.5, cachedInput: 6.25, output: 375 },
+  "gpt-5.4-mini": { displayName: "GPT-5.4-Mini", input: 18.75, cachedInput: 1.875, output: 113 },
   "gpt-5.3-codex": { displayName: "GPT-5.3-Codex", input: 43.75, cachedInput: 4.375, output: 350 },
   "gpt-5.2": { displayName: "GPT-5.2", input: 43.75, cachedInput: 4.375, output: 350 }
 };
@@ -582,12 +587,38 @@ function setInvoiceMode(args = {}) {
   };
 }
 
-function hasMeaningfulReceiptInput(args = {}, estimate = null, tokens = {}) {
+function hasReceiptIdentity(args = {}, estimate = null) {
   const task = String(args.task || args.title || "").trim();
-  const hasEstimate = estimate && Object.keys(estimate).length > 0;
-  const hasLineItems = Array.isArray(args.lineItems) && args.lineItems.length > 0;
-  const tokenTotal = Number(tokens.totalTokens || 0) + Number(tokens.inputTokens || 0) + Number(tokens.outputTokens || 0) + Number(tokens.cachedInputTokens || 0);
-  return Boolean(task || hasEstimate || hasLineItems || tokenTotal > 0);
+  const notes = String(args.notes || estimate?.notes || "").trim();
+  return Boolean(task || notes);
+}
+
+function sumPositiveNumbers(values) {
+  return values.reduce((sum, value) => {
+    const numeric = Number(value || 0);
+    return numeric > 0 ? sum + numeric : sum;
+  }, 0);
+}
+
+function hasPositiveTokenEvidence(args = {}, estimate = null, tokens = {}) {
+  const lineItemTokens = Array.isArray(args.lineItems)
+    ? sumPositiveNumbers(args.lineItems.map((item) => item?.tokens))
+    : 0;
+  const estimateTokens = estimate
+    ? sumPositiveNumbers([
+      estimate.totalTokens,
+      estimate.inputTokens,
+      estimate.outputTokens,
+      estimate.cachedInputTokens
+    ])
+    : 0;
+  const providedTokens = sumPositiveNumbers([
+    tokens.totalTokens,
+    tokens.inputTokens,
+    tokens.outputTokens,
+    tokens.cachedInputTokens
+  ]);
+  return lineItemTokens + estimateTokens + providedTokens > 0;
 }
 
 function recordTaskUsage(args = {}) {
@@ -605,14 +636,27 @@ function recordTaskUsage(args = {}) {
   const outputTokens = Number(args.outputTokens ?? estimate?.outputTokens ?? 0);
   const totalTokens = Number(args.totalTokens ?? estimate?.totalTokens ?? inputTokens + outputTokens);
   const cachedInputTokens = Number(args.cachedInputTokens ?? estimate?.cachedInputTokens ?? 0);
-  if (args.forceEmpty !== true && !hasMeaningfulReceiptInput(args, estimate, { inputTokens, outputTokens, totalTokens, cachedInputTokens })) {
-    return {
-      skipped: true,
-      invoiceEnabled: mode.invoiceEnabled !== false,
-      receiptUrl: null,
-      errorCode: "MISSION_INVOICE_EMPTY_RECORD",
-      message: "Mission Invoice skipped an empty receipt request. Provide task/title plus token estimates, estimate, or lineItems; use forceEmpty=true only for an intentional 0-token test receipt."
-    };
+  if (args.forceEmpty !== true) {
+    const hasIdentity = hasReceiptIdentity(args, estimate);
+    const hasTokenEvidence = hasPositiveTokenEvidence(args, estimate, { inputTokens, outputTokens, totalTokens, cachedInputTokens });
+    if (!hasIdentity && !hasTokenEvidence) {
+      return {
+        skipped: true,
+        invoiceEnabled: mode.invoiceEnabled !== false,
+        receiptUrl: null,
+        errorCode: "MISSION_INVOICE_EMPTY_RECORD",
+        message: "Mission Invoice skipped an empty receipt request. Provide task/title plus positive token estimates, estimate, or lineItems; use forceEmpty=true only for an intentional 0-token test receipt."
+      };
+    }
+    if (!hasTokenEvidence) {
+      return {
+        skipped: true,
+        invoiceEnabled: mode.invoiceEnabled !== false,
+        receiptUrl: null,
+        errorCode: "MISSION_INVOICE_MISSING_TOKENS",
+        message: "Mission Invoice found task context but no positive token usage. Estimate inputTokens/outputTokens/totalTokens or provide positive lineItems before recording; use forceEmpty=true only for an intentional 0-token test receipt."
+      };
+    }
   }
   const paths = projectDataPaths(args);
   ensureProjectStore(paths);

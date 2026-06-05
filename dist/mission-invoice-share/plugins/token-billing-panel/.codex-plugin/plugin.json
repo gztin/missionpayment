@@ -1,6 +1,6 @@
 {
   "name": "token-billing-panel",
-  "version": "0.2.1+codex.20260603082200",
+  "version": "0.2.2+codex.20260605090300",
   "description": "Mission Invoice 會為 Codex 專案產生本機 Token 電子發票，支援 /mission setup 專案初始化，並可用 /mission on 或 /mission off 切換。",
   "author": {
     "name": "本機開發者"

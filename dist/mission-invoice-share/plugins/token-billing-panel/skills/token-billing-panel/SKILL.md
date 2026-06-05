@@ -34,10 +34,17 @@ Supported reference models:
 
 - `GPT-5.5`
 - `GPT-5.4`
+- `GPT-5.4-Mini`
 - `GPT-5.3-Codex`
 - `GPT-5.2`
 
 Default reference model: `GPT-5.5`.
+
+Credit estimates use the official Codex token-based rate card:
+
+```text
+https://help.openai.com/zh-hant/articles/20001106-codex-rate-card
+```
 
 ## Use The Script
 
@@ -124,7 +131,7 @@ Before the final response of a token-consuming task:
 3. If enabled, record the task:
 
    ```bash
-   node scripts/token-billing-mcp.js record '{"projectPath":"<absolute-project-path>","task":"<short task title>","taskType":"coding","model":"GPT-5.5","inputTokens":0,"outputTokens":0,"elapsedMs":0,"notes":"Estimated from visible task context."}'
+   node scripts/token-billing-mcp.js record '{"projectPath":"<absolute-project-path>","task":"<short task title>","taskType":"coding","model":"GPT-5.5","inputTokens":1200,"outputTokens":600,"totalTokens":1800,"elapsedMs":0,"notes":"Estimated from visible task context."}'
    ```
 
 4. Use the returned `receiptUrl` in the final response as a clickable Markdown link with this exact text:
@@ -136,6 +143,7 @@ Before the final response of a token-consuming task:
 Use `historyUrl` when the user asks for historical bills or statistics.
 
 If actual runtime usage is unavailable, mark the receipt as estimated. Do not claim it is official billing data.
+Do not record a normal task with zero tokens. If token usage is unavailable, estimate positive input/output/total token counts before recording. `forceEmpty` is reserved for intentional 0-token test receipts.
 
 ## Runtime Updates
 
