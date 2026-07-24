@@ -29,6 +29,8 @@ Support these user-facing commands:
 - `/mission model list`: list supported reference models.
 - `/mission runtime`: show the active Mission Invoice runtime version and update guidance.
 - `/mission update`: download the latest runtime override for receipt logic fixes without changing plugin metadata.
+- `/mission inspect-events`: inspect local Codex token events from `~/.codex/logs_2.sqlite` without writing a receipt.
+- `/mission import-events`: import the latest positive local Codex token event into this project's Mission Invoice ledger.
 
 Supported reference models:
 
@@ -68,6 +70,8 @@ Available CLI commands:
 - `models`
 - `runtime`
 - `update`
+- `inspect-events`
+- `import-events`
 - `set-model`
 - `set-mode`
 - `setup-status`
@@ -80,6 +84,8 @@ node scripts/token-billing-mcp.js models "{}"
 node scripts/token-billing-mcp.js runtime "{}"
 node scripts/token-billing-mcp.js set-model "{\"model\":\"GPT-5.5\"}"
 node scripts/token-billing-mcp.js set-mode "{\"mode\":\"on\"}"
+node scripts/token-billing-mcp.js inspect-events "{\"count\":5}"
+node scripts/token-billing-mcp.js import-events "{\"projectPath\":\"<absolute-project-path>\"}"
 ```
 
 On Windows PowerShell, prefer single quotes around JSON:
@@ -160,6 +166,26 @@ It also checks for a user-local override before each CLI command or MCP tool cal
 ```
 
 Use `/mission runtime` to inspect the active runtime path and version. Use `/mission update` only when the user asks to update Mission Invoice or when a bugfix is needed. Runtime updates can change receipt logic, generated HTML, and local data handling without reinstalling the plugin. A Codex restart or new thread is still recommended when plugin metadata, skill descriptions, MCP server configuration, or marketplace entries change.
+
+## Codex Local Event Import
+
+When the user asks whether Mission Invoice can read Codex CLI/app token usage, use local event import:
+
+1. Inspect local Codex token events:
+
+   ```bash
+   node scripts/token-billing-mcp.js inspect-events "{\"count\":5}"
+   ```
+
+2. Import the latest positive event into the current project ledger:
+
+   ```bash
+   node scripts/token-billing-mcp.js import-events "{\"projectPath\":\"<absolute-project-path>\"}"
+   ```
+
+This reads `~/.codex/logs_2.sqlite` and only returns/imports token metadata such as `threadId`, `turnId`, model, timestamp, and token totals. It must not expose prompt text or raw log bodies in user-facing output.
+
+Current Codex local logs expose turn-level `total_usage_tokens` snapshots. Mission Invoice computes the task amount by subtracting the previous total in the same thread. If input/output token split is not available, the imported receipt marks the total as observed and the input/output split as estimated. Import defaults to completed events only; pass `includeActive:true` only when intentionally importing an in-progress turn snapshot.
 
 ## Static Receipt UI
 

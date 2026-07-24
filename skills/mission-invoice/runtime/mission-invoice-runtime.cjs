@@ -6,9 +6,10 @@ const https = require("https");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
+const { execFileSync } = require("child_process");
 const { fileURLToPath, pathToFileURL } = require("url");
 
-const MISSION_INVOICE_RUNTIME_VERSION = "0.2.2";
+const MISSION_INVOICE_RUNTIME_VERSION = "0.2.3";
 const DATA_DIR = process.env.TOKEN_BILLING_PANEL_DATA_DIR || path.join(os.homedir(), ".codex-token-billing");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const PROJECTS_DIR = path.join(DATA_DIR, "projects");
@@ -18,7 +19,7 @@ const DEFAULT_RUNTIME_UPDATE_URL = "https://raw.githubusercontent.com/gztin/miss
 const SETUP_START = "<!-- mission-invoice:start -->";
 const SETUP_END = "<!-- mission-invoice:end -->";
 const DEFAULT_RATE_MODEL = "gpt-5.5";
-const RATE_CARD_SOURCE = "https://help.openai.com/en/articles/20001106-codex-rate-card";
+const RATE_CARD_SOURCE = "https://help.openai.com/zh-hant/articles/20001106-codex-rate-card";
 const MODEL_ALIASES = {
   "5.5": "gpt-5.5",
   "gpt-5.5": "gpt-5.5",
@@ -147,6 +148,221 @@ function writeJson(file, value) {
   ensureStore();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
+}
+
+function codexLogsDbPath(args = {}) {
+  return path.resolve(String(args.dbPath || path.join(os.homedir(), ".codex", "logs_2.sqlite")));
+}
+
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function runSqliteQuery(dbPath, sql) {
+  if (!fs.existsSync(dbPath)) {
+    const error = new Error(`Codex local log database was not found at ${dbPath}.`);
+    error.code = "MISSION_INVOICE_CODEX_LOG_DB_NOT_FOUND";
+    throw error;
+  }
+  try {
+    return execFileSync("sqlite3", [dbPath, sql], {
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024
+    });
+  } catch (error) {
+    const wrapped = new Error(`Unable to read Codex local log database: ${error.message}`);
+    wrapped.code = "MISSION_INVOICE_CODEX_LOG_READ_FAILED";
+    throw wrapped;
+  }
+}
+
+function parseTokenUsageLogBody(body) {
+  const text = String(body || "");
+  if (!text.includes("post sampling token usage")) return null;
+  const total = text.match(/\btotal_usage_tokens=(\d+)\b/);
+  const turnId = text.match(/\bturn(?:\.id|_id)=([0-9a-f-]{20,})\b/i);
+  const threadId = text.match(/\bthread(?:\.id|_id)=([0-9a-f-]{20,})\b/i);
+  const model = text.match(/\bmodel=([A-Za-z0-9._-]+)\b/);
+  if (!total || !turnId || !threadId) return null;
+  return {
+    threadId: threadId[1],
+    turnId: turnId[1],
+    model: model ? model[1] : null,
+    totalUsageTokens: Number(total[1]),
+    needsFollowUp: /\bneeds_follow_up=true\b/.test(text),
+    tokenLimitReached: /\btoken_limit_reached=true\b/.test(text)
+  };
+}
+
+function readCodexTokenUsageSnapshots(args = {}) {
+  const dbPath = codexLogsDbPath(args);
+  const limit = clampNumber(args.scanLimit || args.limit || 2000, 1, 20000, 2000);
+  const separator = "|||MISSION_INVOICE_SEPARATOR|||";
+  const sql = `
+select id || '${separator}' || ts || '${separator}' || ts_nanos || '${separator}' || replace(replace(feedback_log_body, char(10), ' '), '${separator}', ' ')
+from logs
+where feedback_log_body like '%post sampling token usage%'
+order by ts asc, ts_nanos asc, id asc
+limit ${limit};
+`;
+  const stdout = runSqliteQuery(dbPath, sql);
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [id, ts, tsNanos, ...bodyParts] = line.split(separator);
+      const parsed = parseTokenUsageLogBody(bodyParts.join(separator));
+      if (!parsed) return null;
+      return {
+        id: Number(id),
+        ts: Number(ts),
+        tsNanos: Number(tsNanos),
+        observedAt: new Date(Number(ts || 0) * 1000).toISOString(),
+        ...parsed
+      };
+    })
+    .filter(Boolean)
+    .filter((event) => !args.threadId || event.threadId === args.threadId)
+    .filter((event) => !args.turnId || event.turnId === args.turnId);
+}
+
+function collapseCodexTurnUsages(snapshots) {
+  const byTurn = new Map();
+  for (const snapshot of snapshots) {
+    const key = `${snapshot.threadId}:${snapshot.turnId}`;
+    const existing = byTurn.get(key);
+    if (!existing || snapshot.id > existing.id) {
+      byTurn.set(key, { ...snapshot, snapshotCount: (existing?.snapshotCount || 0) + 1 });
+    } else {
+      existing.snapshotCount = (existing.snapshotCount || 1) + 1;
+    }
+  }
+
+  const turns = Array.from(byTurn.values()).sort((a, b) => a.ts - b.ts || a.tsNanos - b.tsNanos || a.id - b.id);
+  const previousByThread = new Map();
+  return turns.map((turn) => {
+    const previous = previousByThread.get(turn.threadId) || null;
+    const observedDeltaTokens = previous
+      ? Math.max(0, Number(turn.totalUsageTokens || 0) - Number(previous.totalUsageTokens || 0))
+      : Number(turn.totalUsageTokens || 0);
+    previousByThread.set(turn.threadId, turn);
+    return {
+      source: "codex-local-logs",
+      threadId: turn.threadId,
+      turnId: turn.turnId,
+      model: turn.model,
+      observedAt: turn.observedAt,
+      sourceLogId: turn.id,
+      snapshotCount: turn.snapshotCount || 1,
+      totalUsageTokens: turn.totalUsageTokens,
+      previousTurnId: previous?.turnId || null,
+      previousTotalUsageTokens: previous?.totalUsageTokens || 0,
+      observedDeltaTokens,
+      needsFollowUp: turn.needsFollowUp,
+      tokenLimitReached: turn.tokenLimitReached
+    };
+  });
+}
+
+function inspectCodexEvents(args = {}) {
+  const dbPath = codexLogsDbPath(args);
+  const snapshots = readCodexTokenUsageSnapshots(args);
+  const allEvents = collapseCodexTurnUsages(snapshots);
+  const count = clampNumber(args.count || 12, 1, 100, 12);
+  return {
+    source: "codex-local-logs",
+    dbPath,
+    found: allEvents.length,
+    events: allEvents.slice(-count).reverse(),
+    limitations: [
+      "Codex local logs expose a turn-level total_usage_tokens snapshot, not an official billing record.",
+      "Mission Invoice computes each turn by subtracting the previous total_usage_tokens in the same thread.",
+      "Input/output split is estimated during import unless Codex exposes a stable split in local logs."
+    ]
+  };
+}
+
+function hasImportedCodexEvent(records, event) {
+  return records.some((record) => {
+    const local = record?.localCodexEvent || {};
+    return local.source === "codex-local-logs" && local.turnId === event.turnId && local.threadId === event.threadId;
+  });
+}
+
+function importCodexEvents(args = {}) {
+  const paths = projectDataPaths(args);
+  ensureProjectStore(paths);
+  const data = readJson(paths.logFile, { projectPath: paths.projectPath, projectId: paths.projectId, records: [] });
+  const records = Array.isArray(data.records) ? data.records : [];
+  const inspected = inspectCodexEvents(args);
+  const selected = inspected.events
+    .find((event) => (
+      event.observedDeltaTokens > 0
+      && (!args.turnId || event.turnId === args.turnId)
+      && (args.includeActive === true || event.needsFollowUp !== true)
+    ));
+
+  if (!selected) {
+    return {
+      skipped: true,
+      errorCode: "MISSION_INVOICE_NO_CODEX_TOKEN_EVENT",
+      message: "No importable completed Codex token event with a positive observed delta was found. Use includeActive=true only if you intentionally want to import an in-progress turn snapshot.",
+      inspected
+    };
+  }
+
+  if (args.force !== true && hasImportedCodexEvent(records, selected)) {
+    return {
+      skipped: true,
+      errorCode: "MISSION_INVOICE_EVENT_ALREADY_IMPORTED",
+      message: "This Codex token event has already been imported for this project. Use force=true to record it again intentionally.",
+      event: selected
+    };
+  }
+
+  const totalTokens = Number(selected.observedDeltaTokens || 0);
+  const inputRatio = clampNumber(args.inputRatio ?? 0.75, 0.05, 0.95, 0.75);
+  const inputTokens = Math.round(totalTokens * inputRatio);
+  const outputTokens = Math.max(0, totalTokens - inputTokens);
+  const model = selected.model || args.model || getReferenceModel();
+  const result = recordTaskUsage({
+    ...args,
+    task: args.task || `Codex local event ${selected.turnId.slice(0, 8)}`,
+    category: args.category || "analysis",
+    model,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cachedInputTokens: 0,
+    confidence: "observed-total-estimated-split",
+    paymentType: "Estimated",
+    lineItems: [
+      { label: "Observed total token delta", quantity: 1, tokens: totalTokens }
+    ],
+    notes: args.notes || `Observed total token delta from Codex local logs. Input/output split estimated with inputRatio=${inputRatio}. thread.id=${selected.threadId} turn.id=${selected.turnId} sourceLogId=${selected.sourceLogId} previousTotal=${selected.previousTotalUsageTokens} currentTotal=${selected.totalUsageTokens}.`,
+    localCodexEvent: {
+      ...selected,
+      dbPath: inspected.dbPath,
+      inputRatio,
+      splitEstimated: true
+    }
+  });
+
+  return {
+    ...result,
+    imported: true,
+    event: selected,
+    split: {
+      inputRatio,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      splitEstimated: true
+    }
+  };
 }
 
 function countTextTokens(text) {
@@ -692,6 +908,7 @@ function recordTaskUsage(args = {}) {
     confidence: args.confidence || estimate?.confidence || "estimated",
     status: args.status || "completed",
     notes: args.notes || "",
+    localCodexEvent: args.localCodexEvent || undefined,
     receipt: {
       receiptNo,
       storeName: args.storeName || "Codex Token Mart",
@@ -1115,6 +1332,40 @@ const tools = [
     }
   },
   {
+    name: "inspect_codex_events",
+    description: "Inspect local Codex token usage events from ~/.codex/logs_2.sqlite without importing them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dbPath: { type: "string", description: "Optional path to Codex logs_2.sqlite. Defaults to ~/.codex/logs_2.sqlite." },
+        threadId: { type: "string", description: "Optional Codex thread id filter." },
+        turnId: { type: "string", description: "Optional Codex turn id filter." },
+        limit: { type: "number", description: "Maximum SQLite rows to scan. Defaults to 2000." },
+        count: { type: "number", description: "Number of recent collapsed events to return. Defaults to 12." }
+      }
+    }
+  },
+  {
+    name: "import_codex_events",
+    description: "Import the latest local Codex token usage event into the project Mission Invoice ledger.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectPath: { type: "string", description: "Absolute path to the project root. Defaults to the MCP process working directory." },
+        dbPath: { type: "string", description: "Optional path to Codex logs_2.sqlite. Defaults to ~/.codex/logs_2.sqlite." },
+        threadId: { type: "string", description: "Optional Codex thread id filter." },
+        turnId: { type: "string", description: "Optional Codex turn id filter." },
+        limit: { type: "number", description: "Maximum SQLite rows to scan. Defaults to 2000." },
+        task: { type: "string" },
+        category: { type: "string" },
+        model: { type: "string" },
+        inputRatio: { type: "number", description: "Estimated input share when local logs only expose total tokens. Defaults to 0.75." },
+        includeActive: { type: "boolean", description: "Allow importing an in-progress event where needsFollowUp is true. Defaults to false." },
+        force: { type: "boolean", description: "Record even when invoice mode is disabled or the event was already imported." }
+      }
+    }
+  },
+  {
     name: "get_invoice_mode",
     description: "Return whether automatic Mission Invoice generation is enabled.",
     inputSchema: { type: "object", properties: {} }
@@ -1198,6 +1449,8 @@ async function callTool(name, args) {
   if (name === "estimate_plan_cost") return estimatePlanCost(args);
   if (name === "record_task_usage") return recordTaskUsage(args);
   if (name === "get_usage_summary") return getUsageSummary(args);
+  if (name === "inspect_codex_events") return inspectCodexEvents(args);
+  if (name === "import_codex_events") return importCodexEvents(args);
   if (name === "get_invoice_mode") return getInvoiceMode();
   if (name === "get_reference_models") return { referenceModel: getReferenceModelInfo(), models: listReferenceModels(), command: "/mission model <model>" };
   if (name === "get_runtime_status") return getRuntimeStatus(args);
@@ -1266,6 +1519,8 @@ const cliAliases = {
   "record-task": "record_task_usage",
   record: "record_task_usage",
   summary: "get_usage_summary",
+  "inspect-events": "inspect_codex_events",
+  "import-events": "import_codex_events",
   mode: "get_invoice_mode",
   models: "get_reference_models",
   runtime: "get_runtime_status",
@@ -1337,6 +1592,8 @@ module.exports = {
   parseCliArgs,
   runCli,
   runMcpServer,
+  inspectCodexEvents,
+  importCodexEvents,
   getRuntimeStatus,
   updateRuntime
 };
