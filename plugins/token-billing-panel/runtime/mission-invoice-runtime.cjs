@@ -6,10 +6,10 @@ const https = require("https");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
-const { execFileSync } = require("child_process");
+const { execFileSync, spawn } = require("child_process");
 const { fileURLToPath, pathToFileURL } = require("url");
 
-const MISSION_INVOICE_RUNTIME_VERSION = "0.2.3";
+const MISSION_INVOICE_RUNTIME_VERSION = "0.3.0";
 const DATA_DIR = process.env.TOKEN_BILLING_PANEL_DATA_DIR || path.join(os.homedir(), ".codex-token-billing");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const PROJECTS_DIR = path.join(DATA_DIR, "projects");
@@ -59,6 +59,7 @@ function ensureStore() {
           resetDay: 1,
           referenceModel: DEFAULT_RATE_MODEL,
           invoiceEnabled: true,
+          popupEnabled: false,
           categories: [
             "planning",
             "coding",
@@ -88,6 +89,10 @@ function ensureStore() {
         settings.invoiceEnabled = true;
         changed = true;
       }
+      if (settings.popupEnabled === undefined) {
+        settings.popupEnabled = false;
+        changed = true;
+      }
       if (settings.referenceModel === undefined) {
         settings.referenceModel = DEFAULT_RATE_MODEL;
         changed = true;
@@ -98,7 +103,7 @@ function ensureStore() {
     } catch {
       fs.writeFileSync(
         SETTINGS_FILE,
-        JSON.stringify({ currency: "tokens", estimateMultiplier: 1, monthlyTokenBudget: 2000000, resetDay: 1, referenceModel: DEFAULT_RATE_MODEL, invoiceEnabled: true }, null, 2)
+        JSON.stringify({ currency: "tokens", estimateMultiplier: 1, monthlyTokenBudget: 2000000, resetDay: 1, referenceModel: DEFAULT_RATE_MODEL, invoiceEnabled: true, popupEnabled: false }, null, 2)
       );
     }
   }
@@ -152,6 +157,142 @@ function writeJson(file, value) {
 
 function codexLogsDbPath(args = {}) {
   return path.resolve(String(args.dbPath || path.join(os.homedir(), ".codex", "logs_2.sqlite")));
+}
+
+function codexExecutableCandidates(args = {}) {
+  return [
+    process.env.CODEX_BIN,
+    process.env.CODEX_EXECUTABLE,
+    process.platform === "darwin" ? "/Applications/ChatGPT.app/Contents/Resources/codex" : null,
+    "codex"
+  ].filter(Boolean);
+}
+
+function sanitizeRateLimitWindow(window) {
+  if (!window || typeof window !== "object") return null;
+  const usedPercent = Number(window.usedPercent);
+  if (!Number.isFinite(usedPercent)) return null;
+  const windowDurationMins = Number(window.windowDurationMins);
+  const resetsAt = Number(window.resetsAt);
+  return {
+    usedPercent: Math.min(100, Math.max(0, Math.round(usedPercent))),
+    remainingPercent: Math.min(100, Math.max(0, Math.round(100 - usedPercent))),
+    windowDurationMins: Number.isFinite(windowDurationMins) ? windowDurationMins : null,
+    resetsAt: Number.isFinite(resetsAt) ? resetsAt : null,
+    resetsAtIso: Number.isFinite(resetsAt) ? new Date(resetsAt * 1000).toISOString() : null
+  };
+}
+
+function sanitizeRateLimitsResponse(result, capturedAt = new Date().toISOString()) {
+  const buckets = result?.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === "object"
+    ? result.rateLimitsByLimitId
+    : null;
+  const raw = buckets?.codex || result?.rateLimits || Object.values(buckets || {})[0] || null;
+  if (!raw) {
+    return { status: "unavailable", source: "codex-app-server", capturedAt, errorCode: "MISSION_INVOICE_RATE_LIMITS_EMPTY" };
+  }
+  const primary = sanitizeRateLimitWindow(raw.primary);
+  const secondary = sanitizeRateLimitWindow(raw.secondary);
+  const windows = [primary, secondary].filter(Boolean);
+  const preferredWindow = windows.slice().sort((a, b) => Number(b.windowDurationMins || 0) - Number(a.windowDurationMins || 0))[0] || null;
+  return {
+    status: preferredWindow ? "available" : "unavailable",
+    source: "codex-app-server",
+    capturedAt,
+    planType: raw.planType || null,
+    limitId: raw.limitId || null,
+    limitName: raw.limitName || null,
+    primary,
+    secondary,
+    preferredWindow,
+    errorCode: preferredWindow ? null : "MISSION_INVOICE_RATE_LIMIT_WINDOW_MISSING"
+  };
+}
+
+function readCodexAccountRateLimits(args = {}) {
+  const timeoutMs = clampNumber(args.rateLimitsTimeoutMs || 5000, 500, 15000, 5000);
+  const candidates = codexExecutableCandidates(args);
+  const capturedAt = new Date().toISOString();
+  return new Promise((resolve) => {
+    let candidateIndex = 0;
+    const tryNext = () => {
+      if (candidateIndex >= candidates.length) {
+        resolve({ status: "unavailable", source: "codex-app-server", capturedAt, errorCode: "MISSION_INVOICE_CODEX_APP_SERVER_NOT_FOUND" });
+        return;
+      }
+      const executable = candidates[candidateIndex++];
+      let settled = false;
+      let buffer = "";
+      let child;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (child && !child.killed) child.kill();
+        resolve(value);
+      };
+      try {
+        child = spawn(executable, ["app-server", "--stdio"], {
+          stdio: ["pipe", "pipe", "ignore"],
+          env: process.env
+        });
+      } catch {
+        tryNext();
+        return;
+      }
+      const timer = setTimeout(() => {
+        if (candidateIndex < candidates.length) {
+          settled = true;
+          if (child && !child.killed) child.kill();
+          tryNext();
+          return;
+        }
+        finish({ status: "unavailable", source: "codex-app-server", capturedAt, errorCode: "MISSION_INVOICE_RATE_LIMITS_TIMEOUT" });
+      }, timeoutMs);
+      child.on("error", () => {
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        tryNext();
+      });
+      child.stdout.on("data", (chunk) => {
+        buffer += chunk.toString("utf8");
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let message;
+          try {
+            message = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (message.id === "mission-init" && message.result) {
+            child.stdin.write(`${JSON.stringify({ id: "mission-rate-limits", method: "account/rateLimits/read" })}\n`);
+          }
+          if (message.id === "mission-rate-limits") {
+            if (message.result) finish(sanitizeRateLimitsResponse(message.result, capturedAt));
+            else finish({ status: "unavailable", source: "codex-app-server", capturedAt, errorCode: "MISSION_INVOICE_RATE_LIMITS_REQUEST_FAILED" });
+          }
+        }
+      });
+      child.on("exit", () => {
+        if (settled) return;
+        clearTimeout(timer);
+        settled = true;
+        tryNext();
+      });
+      child.stdin.write(`${JSON.stringify({
+        id: "mission-init",
+        method: "initialize",
+        params: {
+          clientInfo: { name: "mission-invoice", title: "Mission Invoice", version: MISSION_INVOICE_RUNTIME_VERSION },
+          capabilities: { experimentalApi: true }
+        }
+      })}\n`);
+    };
+    tryNext();
+  });
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -292,7 +433,7 @@ function hasImportedCodexEvent(records, event) {
   });
 }
 
-function importCodexEvents(args = {}) {
+async function importCodexEvents(args = {}) {
   const paths = projectDataPaths(args);
   ensureProjectStore(paths);
   const data = readJson(paths.logFile, { projectPath: paths.projectPath, projectId: paths.projectId, records: [] });
@@ -328,7 +469,7 @@ function importCodexEvents(args = {}) {
   const inputTokens = Math.round(totalTokens * inputRatio);
   const outputTokens = Math.max(0, totalTokens - inputTokens);
   const model = selected.model || args.model || getReferenceModel();
-  const result = recordTaskUsage({
+  const result = await recordTaskUsage({
     ...args,
     task: args.task || `Codex local event ${selected.turnId.slice(0, 8)}`,
     category: args.category || "analysis",
@@ -377,6 +518,23 @@ function countTextTokens(text) {
 
 function normalizeModelName(model) {
   return String(model || "").trim().toLowerCase();
+}
+
+function formatActualModelName(model) {
+  const value = String(model || "").trim();
+  if (!value) return "未取得";
+  const parts = value.split("-");
+  const prefix = /^gpt$/i.test(parts[0]) && /^\d+(?:\.\d+)*$/.test(parts[1] || "")
+    ? `GPT-${parts.splice(1, 1)[0]}`
+    : null;
+  if (prefix) parts.shift();
+  const suffix = parts
+    .map((part) => {
+      if (/^\d+(?:\.\d+)*$/.test(part)) return part;
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+  return [prefix, suffix].filter(Boolean).join(" ");
 }
 
 function normalizeReferenceModel(model) {
@@ -550,9 +708,8 @@ function defaultLineItems(args = {}, estimate = null) {
 }
 
 function displayModelForRecord(record = {}) {
-  const spend = record.tokenSpend || {};
-  const receipt = record.receipt || {};
-  return spend.rateModelDisplayName || receipt.model || record.model || "Unknown";
+  const actualModel = record.actualModel || record?.localCodexEvent?.model;
+  return actualModel ? formatActualModelName(actualModel) : "未取得";
 }
 
 function summarize(records, paths = projectDataPaths({})) {
@@ -699,13 +856,29 @@ function getInvoiceMode() {
   const settings = readJson(SETTINGS_FILE, {});
   return {
     invoiceEnabled: settings.invoiceEnabled !== false,
+    popupEnabled: settings.popupEnabled === true,
     commandOn: "/mission on",
     commandOff: "/mission off",
+    commandPopupOn: "/mission popup on",
+    commandPopupOff: "/mission popup off",
     commandSetup: "/mission setup",
     commandModel: "/mission model GPT-5.5",
     referenceModel: getReferenceModelInfo(),
     legacyOnAliases: ["/Token Billing Invoice"],
     legacyOffAliases: ["/Token Billing texfree", "/Token Billing taxfree"]
+  };
+}
+
+function getPopupMode() {
+  const settings = readJson(SETTINGS_FILE, {});
+  return {
+    popupEnabled: settings.popupEnabled === true,
+    commandOn: "/mission popup on",
+    commandOff: "/mission popup off",
+    urlScheme: "missioninvoice://receipt",
+    message: settings.popupEnabled === true
+      ? "Mission Invoice floating receipt is ON."
+      : "Mission Invoice floating receipt is OFF."
   };
 }
 
@@ -803,6 +976,84 @@ function setInvoiceMode(args = {}) {
   };
 }
 
+function setPopupMode(args = {}) {
+  const settings = readJson(SETTINGS_FILE, {});
+  const rawMode = String(args.mode || "").trim().toLowerCase();
+  const normalizedMode = rawMode.replace(/^\/+/, "").replace(/\s+/g, " ");
+  let enabled;
+  if (typeof args.enabled === "boolean") {
+    enabled = args.enabled;
+  } else if (["mission popup on", "popup on", "on", "enabled", "enable", "true"].includes(normalizedMode)) {
+    enabled = true;
+  } else if (["mission popup off", "popup off", "off", "disabled", "disable", "false"].includes(normalizedMode)) {
+    enabled = false;
+  } else {
+    throw new Error("Popup mode must be on or off.");
+  }
+  settings.popupEnabled = enabled;
+  writeJson(SETTINGS_FILE, settings);
+  return {
+    popupEnabled: enabled,
+    command: enabled ? "/mission popup off" : "/mission popup on",
+    message: enabled
+      ? "Mission Invoice floating receipt is ON. Install the companion app to show receipts after each task."
+      : "Mission Invoice floating receipt is OFF. HTML receipts continue to be generated."
+  };
+}
+
+function popupReceiptPayload(record = {}) {
+  const paths = projectDataPaths({
+    projectPath: record.projectPath,
+    projectId: record.projectId
+  });
+  return {
+    version: 1,
+    receiptNo: String(record?.receipt?.receiptNo || ""),
+    task: String(record.task || ""),
+    category: String(record.category || "uncategorized"),
+    model: displayModelForRecord(record),
+    endedAt: String(record.endedAt || record.createdAt || new Date().toISOString()),
+    durationMs: Number(record.durationMs || 0),
+    inputTokens: Number(record.inputTokens || 0),
+    outputTokens: Number(record.outputTokens || 0),
+    totalTokens: Number(record.totalTokens || 0),
+    projectId: String(record.projectId || paths.projectId || ""),
+    projectLogFile: paths.logFile,
+    receiptFileUrl: String(record.receiptFileUrl || record.receiptUrl || ""),
+    accountUsageSnapshot: record.accountUsageSnapshot || record?.receipt?.accountUsageSnapshot || null,
+    lineItems: (Array.isArray(record?.receipt?.lineItems) ? record.receipt.lineItems : [])
+      .map((item) => ({
+        label: String(item?.label || item?.name || "Token item"),
+        tokens: Number(item?.tokens || 0)
+      }))
+  };
+}
+
+function notifyPopupApp(record = {}) {
+  if (process.platform !== "darwin") {
+    return { attempted: false, reason: "unsupported-platform" };
+  }
+  if (getPopupMode().popupEnabled !== true) {
+    return { attempted: false, reason: "disabled" };
+  }
+  try {
+    const payload = Buffer.from(JSON.stringify(popupReceiptPayload(record)), "utf8").toString("base64url");
+    const url = `missioninvoice://receipt?payload=${encodeURIComponent(payload)}`;
+    const child = spawn("/usr/bin/open", ["-g", url], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.unref();
+    return { attempted: true, delivered: true };
+  } catch (error) {
+    return {
+      attempted: true,
+      delivered: false,
+      error: String(error?.message || error)
+    };
+  }
+}
+
 function hasReceiptIdentity(args = {}, estimate = null) {
   const task = String(args.task || args.title || "").trim();
   const notes = String(args.notes || estimate?.notes || "").trim();
@@ -837,7 +1088,7 @@ function hasPositiveTokenEvidence(args = {}, estimate = null, tokens = {}) {
   return lineItemTokens + estimateTokens + providedTokens > 0;
 }
 
-function recordTaskUsage(args = {}) {
+async function recordTaskUsage(args = {}) {
   const mode = getInvoiceMode();
   if (mode.invoiceEnabled === false && args.force !== true) {
     return {
@@ -882,19 +1133,29 @@ function recordTaskUsage(args = {}) {
   const durationMs = msFromArgs({ ...args, endedAt });
   const lineItems = defaultLineItems({ ...args, inputTokens, outputTokens, totalTokens }, estimate);
   const receiptNo = args.receiptNo || formatReceiptNo(new Date(endedAt));
-  const referenceModel = normalizeReferenceModel(args.referenceModel || args.model || getReferenceModel());
-  const referenceModelInfo = getReferenceModelInfo(referenceModel);
-  const model = referenceModelInfo.displayName;
-  const modelSource = args.referenceModel || args.model ? "manual override" : "stored reference model";
+  const actualModel = String(args.actualModel || args.model || args?.localCodexEvent?.model || "").trim() || null;
+  const model = formatActualModelName(actualModel);
+  const modelSource = args.actualModel || args.model
+    ? "task record"
+    : args?.localCodexEvent?.model
+      ? "codex local event"
+      : "unavailable";
+  const referenceModel = normalizeReferenceModel(args.referenceModel || getReferenceModel());
   const tokenSpend = estimateTokenSpend({ model: referenceModel, inputTokens, outputTokens, cachedInputTokens });
+  const accountUsageSnapshot = args.accountUsageSnapshot && typeof args.accountUsageSnapshot === "object"
+    ? args.accountUsageSnapshot
+    : args.captureRateLimits === false
+      ? { status: "skipped", source: "codex-app-server", capturedAt: new Date().toISOString(), errorCode: null }
+      : await readCodexAccountRateLimits(args);
   const record = {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     createdAt: new Date().toISOString(),
     projectPath: paths.projectPath,
     projectId: paths.projectId,
     task: args.task || args.title || "Untitled task",
-    category: args.category || estimate?.taskType || "uncategorized",
+    category: args.category || args.taskType || estimate?.taskType || "uncategorized",
     model,
+    actualModel,
     startedAt,
     endedAt,
     durationMs,
@@ -903,6 +1164,7 @@ function recordTaskUsage(args = {}) {
     totalTokens,
     cachedInputTokens,
     tokenSpend,
+    accountUsageSnapshot,
     referenceModel,
     modelSource,
     confidence: args.confidence || estimate?.confidence || "estimated",
@@ -914,12 +1176,14 @@ function recordTaskUsage(args = {}) {
       storeName: args.storeName || "Codex Token Mart",
       paymentType: args.paymentType || "Estimated",
       model,
+      actualModel,
       referenceModel,
       modelSource,
       startedAt,
       endedAt,
       durationMs,
-      lineItems
+      lineItems,
+      accountUsageSnapshot
     },
     estimate: estimate || undefined
   };
@@ -933,6 +1197,7 @@ function recordTaskUsage(args = {}) {
   data.records.push(record);
   writeJson(paths.logFile, data);
   const history = writeStaticHistory(data.records, paths);
+  const popup = notifyPopupApp(record);
   return {
     record,
     receiptUrl: record.receiptUrl,
@@ -940,6 +1205,7 @@ function recordTaskUsage(args = {}) {
     receiptFileUrl: record.receiptFileUrl,
     historyUrl: history.historyFileUrl,
     historyFile: history.historyFile,
+    popup,
     summary: getUsageSummary(args)
   };
 }
@@ -1107,37 +1373,47 @@ function receiptHrefFor(record) {
 function localizeLineLabel(label, lang) {
   const value = String(label || "Token item");
   const zh = {
-    "Implement static receipt export": "Static receipt export",
-    "Sync marketplace and share packages": "Sync share package",
-    "Verify generated HTML receipt": "Verify HTML receipt",
-    "Static receipt test": "Static receipt test",
-    "Plan and approval": "Plan and approval",
-    "Delete archive files": "Delete archive files",
-    "Verification and receipt": "Verification and receipt",
-    "Read and understand": "Read and understand",
-    "Generate and summarize": "Generate and summarize",
-    "Total tokens": "Total tokens",
-    "Unrecorded item": "Unrecorded item"
+    "Implement static receipt export": "實作靜態發票匯出",
+    "Sync marketplace and share packages": "同步市集與分享套件",
+    "Verify generated HTML receipt": "驗證產生的 HTML 發票",
+    "Static receipt test": "靜態發票測試",
+    "Plan and approval": "規劃與確認",
+    "Delete archive files": "刪除封存檔案",
+    "Verification and receipt": "驗證與開立發票",
+    "Read and understand": "讀取與理解",
+    "Generate and summarize": "生成與摘要",
+    "Total tokens": "Token 總計",
+    "Unrecorded item": "未記錄項目"
   };
   return lang === "zh" ? (zh[value] || value) : value;
 }
 
 function receiptPageHtml(record) {
   const receipt = record?.receipt || {};
-  const spend = record?.tokenSpend || estimateTokenSpend({
-    model: record?.referenceModel,
-    inputTokens: record?.inputTokens,
-    outputTokens: record?.outputTokens,
-    cachedInputTokens: record?.cachedInputTokens
-  });
-  const modelName = spend.rateModelDisplayName || receipt.model || record?.model || getReferenceModelInfo().displayName;
+  const modelName = displayModelForRecord(record);
   const rows = (receipt.lineItems || []).map((item) => `
       <tr>
         <td>${escapeHtml(localizeLineLabel(item.label, "zh"))}</td>
-        <td class="num">${escapeHtml(item.quantity || 1)}</td>
         <td class="num">${escapeHtml(Number(item.tokens || 0).toLocaleString("zh-Hant-TW"))}</td>
       </tr>`).join("");
-  const dataJson = JSON.stringify({ record, rateCard: getReferenceModelInfo(record?.referenceModel) }).replace(/</g, "\\u003c");
+  const dataJson = JSON.stringify({
+    record: {
+      id: record?.id,
+      task: record?.task,
+      category: record?.category,
+      actualModel: record?.actualModel || record?.localCodexEvent?.model || null,
+      model: modelName,
+      startedAt: record?.startedAt,
+      endedAt: record?.endedAt,
+      durationMs: record?.durationMs,
+      inputTokens: record?.inputTokens,
+      cachedInputTokens: record?.cachedInputTokens,
+      outputTokens: record?.outputTokens,
+      totalTokens: record?.totalTokens,
+      confidence: record?.confidence,
+      status: record?.status
+    }
+  }).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -1145,7 +1421,7 @@ function receiptPageHtml(record) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mission Invoice ${escapeHtml(receipt.receiptNo || "")}</title>
   <style>
-    :root { color-scheme: light; --ink: #20242b; --muted: #69707a; --line: #c7ccd4; --paper: #fffefa; --bg: #eef1f5; --accent: #2457a6; --green: #1f7a5a; }
+    :root { color-scheme: light; --ink: #20242b; --muted: #69707a; --line: #c7ccd4; --paper: #fffefa; --bg: #eef1f5; --accent: #2457a6; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: start center; background: var(--bg); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 28px 16px; }
     .receipt { width: min(430px, 100%); background: var(--paper); border: 1px solid #dad4c8; box-shadow: 0 18px 42px rgba(28, 33, 39, .16); padding: 22px 20px; }
@@ -1161,7 +1437,6 @@ function receiptPageHtml(record) {
     th { color: var(--muted); font-weight: 700; }
     .num { text-align: right; }
     .total { font-size: 22px; font-weight: 900; }
-    .badge { display: inline-block; border: 1px solid var(--green); color: var(--green); padding: 4px 8px; border-radius: 999px; font-size: 12px; }
     .footer-links { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; }
     .footer-links a { color: var(--accent); font-weight: 800; text-decoration: none; }
   </style>
@@ -1173,22 +1448,19 @@ function receiptPageHtml(record) {
       <div class="cut"></div>
       <div class="row"><span>&#x4EFB;&#x52D9;</span><strong>${escapeHtml(record?.task || "Untitled task")}</strong></div>
       <div class="row"><span>&#x985E;&#x578B;</span><strong>${escapeHtml(record?.category || "-")}</strong></div>
-      <div class="row"><span>&#x6A21;&#x578B;</span><strong>${escapeHtml(modelName)}</strong></div>
-      <div class="row"><span>&#x6A21;&#x578B;&#x4F86;&#x6E90;</span><strong>${escapeHtml(record?.modelSource || "default reference model")}</strong></div>
+      <div class="row"><span>&#x4F7F;&#x7528;&#x6A21;&#x578B;</span><strong>${escapeHtml(modelName)}</strong></div>
       <div class="row"><span>&#x8017;&#x6642;</span><strong>${escapeHtml(formatDuration(record?.durationMs || receipt.durationMs))}</strong></div>
       <div class="row"><span>&#x6642;&#x9593;</span><strong>${escapeHtml(record?.endedAt || record?.createdAt || "-")}</strong></div>
       <div class="cut"></div>
-      <table><thead><tr><th>&#x54C1;&#x9805;</th><th class="num">&#x6578;&#x91CF;</th><th class="num">Tokens</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No items</td></tr>'}</tbody></table>
+      <table><thead><tr><th>&#x54C1;&#x9805;</th><th class="num">Tokens</th></tr></thead><tbody>${rows || '<tr><td colspan="2">尚無品項</td></tr>'}</tbody></table>
       <div class="cut"></div>
-      <div class="row"><span>Input</span><strong>${escapeHtml(Number(record?.inputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="row"><span>Cached input</span><strong>${escapeHtml(Number(record?.cachedInputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="row"><span>Output</span><strong>${escapeHtml(Number(record?.outputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="row"><span>Total</span><strong class="total">${escapeHtml(Number(record?.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="row"><span>&#x4ED8;&#x6B3E;</span><span class="badge">${escapeHtml(receipt.paymentType || "Estimated")}</span></div>
-      <div class="row"><span>Rate card</span><strong>${escapeHtml(modelName)}</strong></div>
-      <div class="center subtitle">Estimated from the Codex rate card. Data is stored locally. The model is a user-selected reference basis.</div>
+      <div class="row"><span>輸入</span><strong>${escapeHtml(Number(record?.inputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="row"><span>快取輸入</span><strong>${escapeHtml(Number(record?.cachedInputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="row"><span>輸出</span><strong>${escapeHtml(Number(record?.outputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="row"><span>總計</span><strong class="total">${escapeHtml(Number(record?.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
+      <div class="center subtitle">Token &#x7528;&#x91CF;&#x8A18;&#x9304;&#x5132;&#x5B58;&#x65BC;&#x672C;&#x6A5F;&#x3002;</div>
       <div class="cut"></div>
-      <nav class="footer-links"><a href="index.html#history">&#x6B77;&#x53F2;&#x5E33;&#x55AE;</a><a href="index.html#stats">&#x7D71;&#x8A08;&#x8CC7;&#x8A0A;</a></nav>
+      <nav class="footer-links"><a href="index.html#stats">&#x7D71;&#x8A08;&#x8CC7;&#x8A0A;</a></nav>
     </section>
   </article>
   <script type="application/json" id="mission-invoice-data">${dataJson}</script>
@@ -1196,18 +1468,72 @@ function receiptPageHtml(record) {
 </html>`;
 }
 
+function rateLimitWindowLabel(window) {
+  const duration = Number(window?.windowDurationMins || 0);
+  if (duration >= 6 * 24 * 60) return "每週用量";
+  if (duration > 0 && duration % 60 === 0) return `${duration / 60} 小時用量`;
+  return "短期用量";
+}
+
+function rateLimitWindows(snapshot) {
+  if (!snapshot || snapshot.status !== "available") return [];
+  return [snapshot.primary, snapshot.secondary]
+    .filter((window) => window && Number.isFinite(Number(window.usedPercent)))
+    .sort((a, b) => Number(a.windowDurationMins || 0) - Number(b.windowDurationMins || 0));
+}
+
+function formatRateLimitReset(window) {
+  const value = window?.resetsAtIso || (Number.isFinite(Number(window?.resetsAt))
+    ? new Date(Number(window.resetsAt) * 1000).toISOString()
+    : null);
+  if (!value) return "未提供";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未提供";
+  return date.toLocaleString("zh-Hant-TW", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
+function latestAvailableUsageSnapshot(records) {
+  return [...records]
+    .sort((a, b) => new Date(b.endedAt || b.createdAt || 0) - new Date(a.endedAt || a.createdAt || 0))
+    .map((record) => record.accountUsageSnapshot || record?.receipt?.accountUsageSnapshot || null)
+    .find((snapshot) => rateLimitWindows(snapshot).length > 0) || null;
+}
+
 function historyPageHtml(records, paths = projectDataPaths({})) {
   const normalized = Array.isArray(records) ? records.map(withTokenSpend) : [];
   const summary = summarize(normalized, paths);
-  const rows = normalized.slice().reverse().map((record) => {
-    const receipt = record.receipt || {};
-    const receiptNo = receipt.receiptNo || record.id || "-";
-    return `<tr><td><strong>${escapeHtml(receiptNo)}</strong></td><td class="num">${escapeHtml(Number(record.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</td><td><a class="view-link" href="${escapeHtml(receiptHrefFor(record))}">查看</a></td></tr>`;
-  }).join("");
-  const stats = summary.models.map((model) => {
-    const categoryRows = model.categories.map((category) => `<tr><td>${escapeHtml(category.category)}</td><td class="num">${escapeHtml(Number(category.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</td><td class="num">${escapeHtml(Number(category.records || 0).toLocaleString("zh-Hant-TW"))}</td></tr>`).join("");
-    return `<section class="model-block"><div class="model-head"><h3>${escapeHtml(model.model)}</h3><span>${escapeHtml(Number(model.totalTokens || 0).toLocaleString("zh-Hant-TW"))} tokens</span></div><table><thead><tr><th>任務類型</th><th class="num">Token</th><th class="num">筆數</th></tr></thead><tbody>${categoryRows || '<tr><td colspan="3">尚無統計資料</td></tr>'}</tbody></table></section>`;
-  }).join("");
+  const latestSnapshot = latestAvailableUsageSnapshot(normalized);
+  const latestWindows = rateLimitWindows(latestSnapshot);
+  const historyData = normalized.map((record) => ({
+    id: record.id,
+    receiptNo: record?.receipt?.receiptNo || record.id || "-",
+    href: receiptHrefFor(record),
+    task: record.task || "Untitled task",
+    category: record.category || "uncategorized",
+    model: displayModelForRecord(record),
+    endedAt: record.endedAt || record.createdAt || null,
+    accountUsageSnapshot: record.accountUsageSnapshot || record?.receipt?.accountUsageSnapshot || null
+  }));
+  const historyJson = JSON.stringify(historyData).replace(/</g, "\\u003c");
+  const categoriesByCount = [...summary.categories].sort((a, b) => (
+    Number(b.records || 0) - Number(a.records || 0)
+    || String(a.category || "").localeCompare(String(b.category || ""), "zh-Hant-TW")
+  ));
+  const categoryRows = categoriesByCount.map((category) => `<tr><td>${escapeHtml(category.category)}</td><td class="num"><a class="category-count-link" href="#category=${escapeHtml(encodeURIComponent(category.category))}">${escapeHtml(Number(category.records || 0).toLocaleString("zh-Hant-TW"))}</a></td></tr>`).join("");
+  const usageCards = latestWindows.map((window) => `
+      <article class="usage-card">
+        <div class="usage-card-head"><span>${escapeHtml(rateLimitWindowLabel(window))}</span><strong>${escapeHtml(Number(window.remainingPercent ?? 100 - Number(window.usedPercent || 0)).toLocaleString("zh-Hant-TW"))}%</strong></div>
+        <div class="usage-bar" aria-label="已使用 ${escapeHtml(Number(window.usedPercent || 0))}%"><span style="width:${escapeHtml(Number(window.usedPercent || 0))}%"></span></div>
+        <div class="usage-meta"><span>已使用 ${escapeHtml(Number(window.usedPercent || 0).toLocaleString("zh-Hant-TW"))}%</span><span>重置 ${escapeHtml(formatRateLimitReset(window))}</span></div>
+      </article>`).join("");
+  const usageSection = usageCards || '<div class="empty">目前無法取得 Codex 官方用量</div>';
   return `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -1215,49 +1541,124 @@ function historyPageHtml(records, paths = projectDataPaths({})) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mission Invoice History</title>
   <style>
-    :root { color-scheme: light; --ink: #20242b; --muted: #69707a; --line: #d8dee8; --panel: #fbfcfe; --bg: #f4f6f9; --accent: #2457a6; --accent-bg: #eaf1fb; }
+    :root { color-scheme: light; --ink: #20242b; --muted: #69707a; --line: #d8dee8; --panel: #fff; --bg: #f3f5f8; --accent: #2563eb; --accent-bg: #eaf1ff; --success: #087f5b; --success-bg: #e8f7f1; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
-    header { padding: 24px 28px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
-    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    header { padding: 24px 28px 18px; background: rgba(255,255,255,.92); border-bottom: 1px solid var(--line); backdrop-filter: blur(14px); }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
     h2 { margin: 0; font-size: 20px; letter-spacing: 0; }
     h3 { margin: 0; font-size: 15px; letter-spacing: 0; }
     main { padding: 24px 28px 36px; }
-    .panel { max-width: 1040px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+    .panel { width: 100%; max-width: 640px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px; box-shadow: 0 16px 42px rgba(31,41,55,.08); }
     .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
     .count { color: var(--muted); font-size: 13px; white-space: nowrap; }
-    .desc { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
-    .desc a { color: var(--accent); font-weight: 800; text-decoration: none; }
-    .metric { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
-    .metric span, .model-head span { color: var(--muted); font-size: 13px; white-space: nowrap; }
-    .metric strong { font-size: 24px; }
+    .category-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .category-head .count { display: block; margin-top: 5px; }
+    .category-count-link, .back-link { color: var(--accent); font-weight: 800; text-decoration: none; }
+    .category-count-link:hover, .back-link:hover { text-decoration: underline; }
+    .back-link { flex: 0 0 auto; font-size: 13px; }
+    .usage-grid { display: grid; gap: 12px; margin: 18px 0 24px; }
+    .usage-card { border: 1px solid var(--line); border-radius: 13px; padding: 15px 16px; background: #fbfcff; }
+    .usage-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .usage-card-head span { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .usage-card-head strong { color: var(--success); font-size: 26px; letter-spacing: -.03em; }
+    .usage-bar { height: 8px; margin: 12px 0 9px; overflow: hidden; border-radius: 999px; background: #e5e9f0; }
+    .usage-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+    .usage-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+    .section-title { margin: 0 0 8px; color: var(--muted); font-size: 13px; font-weight: 800; }
+    .receipt-list { display: grid; gap: 10px; }
+    .receipt-card { display: flex; width: 100%; min-width: 0; align-items: center; gap: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #fbfcff; color: var(--ink); text-decoration: none; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease; }
+    .receipt-card:hover { border-color: var(--accent); background: var(--accent-bg); box-shadow: 0 8px 18px rgba(37,99,235,.12); transform: translateY(-1px); }
+    .receipt-index { flex: 0 0 34px; color: var(--muted); font-size: 16px; font-weight: 800; line-height: 1; text-align: center; }
+    .receipt-info { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 5px; }
+    .receipt-title { color: var(--ink); font-size: 14px; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; }
+    .receipt-meta { color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1.45; }
+    .empty { color: var(--muted); text-align: center; border: 1px dashed var(--line); border-radius: 13px; padding: 28px 16px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
     th { color: var(--muted); font-weight: 700; }
     .num { text-align: right; }
-    .view-link { display: inline-flex; align-items: center; justify-content: center; min-width: 52px; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); background: var(--accent-bg); font-weight: 800; text-decoration: none; padding: 5px 10px; }
-    .model-block { padding: 14px 0; border-top: 1px solid var(--line); }
-    .model-block:first-of-type { border-top: 0; padding-top: 0; }
-    .model-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
     [data-view-panel] { display: none; }
     [data-view-panel].active { display: block; }
-    @media (max-width: 720px) { header, main { padding-left: 16px; padding-right: 16px; } table { font-size: 13px; } .panel-head { display: block; } .count { display: block; margin-top: 6px; } }
+    @media (max-width: 720px) {
+      header, main { padding-left: 14px; padding-right: 14px; }
+      .panel { padding: 16px; border-radius: 14px; }
+      table { font-size: 13px; }
+      .panel-head { display: block; }
+      .count { display: block; margin-top: 6px; }
+      .usage-meta { display: grid; gap: 4px; }
+    }
   </style>
 </head>
 <body>
   <header><h1>Mission Invoice</h1></header>
   <main>
-    <section class="panel" data-view-panel="history"><div class="panel-head"><h2>歷史帳單</h2><span class="count">帳單數量 ${escapeHtml(summary.totals.records.toLocaleString("zh-Hant-TW"))}</span></div><p class="desc">查看每張任務發票的 token 花費，或切換到 <a href="#stats" data-view="stats">統計資訊</a></p><table><thead><tr><th>發票號碼</th><th class="num">Token 花費</th><th>查看</th></tr></thead><tbody>${rows || '<tr><td colspan="3">尚無發票紀錄</td></tr>'}</tbody></table></section>
-    <section class="panel" data-view-panel="stats"><div class="panel-head"><h2>統計資訊</h2></div><p class="desc">依模型與任務類型統計 token 使用量。<a href="#history" data-view="history">返回歷史帳單</a></p><div class="metric"><span>總消耗 token</span><strong>${escapeHtml(summary.totals.totalTokens.toLocaleString("zh-Hant-TW"))}</strong></div>${stats || '<p>尚無統計資料</p>'}</section>
+    <section class="panel" data-view-panel="stats"><div class="panel-head"><h2>Codex 官方用量</h2><span class="count">${latestSnapshot?.capturedAt ? `更新 ${escapeHtml(new Date(latestSnapshot.capturedAt).toLocaleString("zh-Hant-TW"))}` : "尚無成功快照"}</span></div><div class="usage-grid">${usageSection}</div><h3 class="section-title">發票任務類型</h3><table><thead><tr><th>任務類型</th><th class="num">筆數</th></tr></thead><tbody>${categoryRows || '<tr><td colspan="2">尚無發票資料</td></tr>'}</tbody></table></section>
+    <section class="panel" data-view-panel="category">
+      <div class="category-head"><div><h2 id="category-title"></h2><span class="count" id="category-count"></span></div><a class="back-link" href="#stats">返回統計資訊</a></div>
+      <div class="receipt-list" id="category-grid"></div>
+    </section>
   </main>
+  <script type="application/json" id="mission-invoice-history-data">${historyJson}</script>
   <script>
-    function setHistoryView(view) {
-      var next = view === "stats" ? "stats" : "history";
-      document.querySelectorAll("[data-view-panel]").forEach(function(panel) { panel.classList.toggle("active", panel.dataset.viewPanel === next); });
-      localStorage.setItem("missionInvoiceHistoryView", next);
+    var records = JSON.parse(document.getElementById("mission-invoice-history-data").textContent || "[]");
+    function renderCategory(category) {
+      var categoryRecords = records.filter(function(record) {
+        return record.category === category;
+      }).sort(function(a, b) {
+        return new Date(b.endedAt || 0) - new Date(a.endedAt || 0);
+      });
+      document.getElementById("category-title").textContent = category + " 發票";
+      document.getElementById("category-count").textContent = categoryRecords.length.toLocaleString("zh-Hant-TW") + " 筆";
+      var grid = document.getElementById("category-grid");
+      if (!categoryRecords.length) {
+        grid.innerHTML = '<div class="empty">這個任務類型沒有發票紀錄</div>';
+        return;
+      }
+      grid.innerHTML = categoryRecords.map(function(record, index) {
+        return '<a class="receipt-card" href="' + escapeAttribute(record.href) + '" aria-label="查看項次 ' + (index + 1) + ' 的發票"><span class="receipt-index">' + (index + 1) + '</span><span class="receipt-info"><strong class="receipt-title">' + escapeText(record.task || "未命名任務") + '</strong><span class="receipt-meta">' + escapeText(recordUsageText(record)) + '</span></span></a>';
+      }).join("");
     }
-    document.querySelectorAll("a[data-view]").forEach(function(link) { link.addEventListener("click", function(event) { event.preventDefault(); setHistoryView(link.dataset.view); location.hash = link.dataset.view; }); });
-    setHistoryView(location.hash === "#stats" ? "stats" : (localStorage.getItem("missionInvoiceHistoryView") || "history"));
+    function recordUsageText(record) {
+      var snapshot = record.accountUsageSnapshot;
+      if (!snapshot || snapshot.status !== "available") return "官方用量無法取得";
+      var windows = [snapshot.primary, snapshot.secondary].filter(function(window) {
+        return window && Number.isFinite(Number(window.usedPercent));
+      }).sort(function(a, b) {
+        return Number(a.windowDurationMins || 0) - Number(b.windowDurationMins || 0);
+      });
+      if (!windows.length) return "官方用量無法取得";
+      return windows.map(function(window) {
+        var duration = Number(window.windowDurationMins || 0);
+        var label = duration >= 6 * 24 * 60 ? "每週" : (duration > 0 && duration % 60 === 0 ? (duration / 60) + " 小時" : "短期");
+        return label + "已使用 " + Number(window.usedPercent || 0).toLocaleString("zh-Hant-TW") + "%";
+      }).join(" · ");
+    }
+    function escapeText(value) {
+      var node = document.createElement("div");
+      node.textContent = String(value == null ? "" : value);
+      return node.innerHTML;
+    }
+    function escapeAttribute(value) {
+      return escapeText(value).replace(/"/g, "&quot;");
+    }
+    function categoryFromHash() {
+      if (location.hash.indexOf("#category=") !== 0) return "";
+      try {
+        return decodeURIComponent(location.hash.slice("#category=".length));
+      } catch (error) {
+        return "";
+      }
+    }
+    function setViewFromHash() {
+      var category = categoryFromHash();
+      var hasCategory = category && records.some(function(record) { return record.category === category; });
+      var next = hasCategory ? "category" : "stats";
+      document.querySelectorAll("[data-view-panel]").forEach(function(panel) { panel.classList.toggle("active", panel.dataset.viewPanel === next); });
+      if (hasCategory) renderCategory(category);
+    }
+    window.addEventListener("hashchange", setViewFromHash);
+    setViewFromHash();
   </script>
 </body>
 </html>`;
@@ -1302,7 +1703,8 @@ const tools = [
         task: { type: "string" },
         projectPath: { type: "string", description: "Absolute path to the project root. Defaults to the MCP process working directory." },
         category: { type: "string" },
-        model: { type: "string" },
+        model: { type: "string", description: "Actual Codex model used for the task, such as gpt-5.6-sol." },
+        actualModel: { type: "string", description: "Explicit actual model identifier. Takes precedence over model." },
         startedAt: { type: "string" },
         endedAt: { type: "string" },
         durationMs: { type: "number" },
@@ -1316,8 +1718,20 @@ const tools = [
         lineItems: { type: "array" },
         paymentType: { type: "string" },
         estimate: { type: "object" },
+        captureRateLimits: { type: "boolean", description: "Set false to skip the official Codex usage snapshot for an intentional test." },
+        rateLimitsTimeoutMs: { type: "number", description: "Codex app-server rate-limit query timeout in milliseconds. Defaults to 5000." },
         force: { type: "boolean", description: "Record a receipt even when invoice mode is disabled." },
         forceEmpty: { type: "boolean", description: "Allow an intentional 0-token test receipt. Do not use for normal task records." }
+      }
+    }
+  },
+  {
+    name: "get_account_rate_limits",
+    description: "Read the current official Codex rate-limit percentage and reset window from the signed-in local Codex app-server.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        rateLimitsTimeoutMs: { type: "number", description: "Timeout in milliseconds. Defaults to 5000." }
       }
     }
   },
@@ -1371,6 +1785,11 @@ const tools = [
     inputSchema: { type: "object", properties: {} }
   },
   {
+    name: "get_popup_mode",
+    description: "Return whether the optional Mission Invoice macOS floating receipt is enabled.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  {
     name: "get_reference_models",
     description: "List available Mission Invoice reference models and the selected credits rate basis.",
     inputSchema: { type: "object", properties: {} }
@@ -1413,6 +1832,17 @@ const tools = [
     }
   },
   {
+    name: "set_popup_mode",
+    description: "Enable or disable the optional Mission Invoice macOS floating receipt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        enabled: { type: "boolean" },
+        mode: { type: "string", description: "on/off or mission popup on/off" }
+      }
+    }
+  },
+  {
     name: "get_project_setup_status",
     description: "Check whether a project's AGENTS.md already contains the Mission Invoice setup rule.",
     inputSchema: {
@@ -1447,16 +1877,19 @@ function sendMessage(message) {
 
 async function callTool(name, args) {
   if (name === "estimate_plan_cost") return estimatePlanCost(args);
-  if (name === "record_task_usage") return recordTaskUsage(args);
+  if (name === "record_task_usage") return await recordTaskUsage(args);
+  if (name === "get_account_rate_limits") return await readCodexAccountRateLimits(args);
   if (name === "get_usage_summary") return getUsageSummary(args);
   if (name === "inspect_codex_events") return inspectCodexEvents(args);
-  if (name === "import_codex_events") return importCodexEvents(args);
+  if (name === "import_codex_events") return await importCodexEvents(args);
   if (name === "get_invoice_mode") return getInvoiceMode();
+  if (name === "get_popup_mode") return getPopupMode();
   if (name === "get_reference_models") return { referenceModel: getReferenceModelInfo(), models: listReferenceModels(), command: "/mission model <model>" };
   if (name === "get_runtime_status") return getRuntimeStatus(args);
   if (name === "update_runtime") return updateRuntime(args);
   if (name === "set_reference_model") return setReferenceModel(args);
   if (name === "set_invoice_mode") return setInvoiceMode(args);
+  if (name === "set_popup_mode") return setPopupMode(args);
   if (name === "get_project_setup_status") return getProjectSetupStatus(args);
   if (name === "setup_project_instructions") return setupProject(args);
   throw new Error(`Unknown tool: ${name}`);
@@ -1518,15 +1951,18 @@ const cliAliases = {
   estimate: "estimate_plan_cost",
   "record-task": "record_task_usage",
   record: "record_task_usage",
+  "rate-limits": "get_account_rate_limits",
   summary: "get_usage_summary",
   "inspect-events": "inspect_codex_events",
   "import-events": "import_codex_events",
   mode: "get_invoice_mode",
+  popup: "get_popup_mode",
   models: "get_reference_models",
   runtime: "get_runtime_status",
   update: "update_runtime",
   "set-model": "set_reference_model",
   "set-mode": "set_invoice_mode",
+  "set-popup": "set_popup_mode",
   "setup-status": "get_project_setup_status",
   setup: "setup_project_instructions"
 };

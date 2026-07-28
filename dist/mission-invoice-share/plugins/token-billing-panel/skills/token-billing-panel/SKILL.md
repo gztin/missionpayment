@@ -1,13 +1,13 @@
 ---
 name: token-billing-panel
-description: Estimate planned Codex token usage, record Mission Invoice static receipts, control invoice mode, switch the reference model, and review local receipt history. Use for every token-consuming Codex task by default, and whenever the user asks about token usage, Mission Invoice, payment records, receipt history, or model-based credit estimates.
+description: Record Mission Invoice token receipts, identify the actual Codex model when available, control invoice mode, and review local receipt history. Use for every token-consuming Codex task by default, and whenever the user asks about token usage, Mission Invoice, payment records, receipt history, or model identification.
 ---
 
 # Mission Invoice
 
 Use this skill for every Codex interaction that consumes tokens unless Mission Invoice is disabled.
 
-Mission Invoice records estimated token and credits usage as local static HTML receipts. Settings are global, while ledgers and receipts are separated by project path. All data stays on the user's machine in:
+Mission Invoice records token usage and the actual Codex model, when available, as local static HTML receipts. Settings are global, while ledgers and receipts are separated by project path. All data stays on the user's machine in:
 
 ```text
 ~/.codex-token-billing/settings.json
@@ -25,28 +25,13 @@ Support these user-facing commands:
 - `/mission setup`: ask before adding Mission Invoice rules to the current project's `AGENTS.md`.
 - `/mission on`: enable automatic receipt generation.
 - `/mission off`: disable automatic receipt generation.
-- `/mission model <model>`: set the reference model used for credit estimates.
-- `/mission model list`: list supported reference models.
+- `/mission popup on`: enable the optional macOS floating receipt after each successful invoice.
+- `/mission popup off`: disable the macOS floating receipt without disabling HTML invoices.
 - `/mission runtime`: show the active Mission Invoice runtime version and update guidance.
 - `/mission update`: download the latest runtime override for receipt logic fixes without changing plugin metadata.
 - `/mission inspect-events`: inspect local Codex token events from `~/.codex/logs_2.sqlite` without writing a receipt.
 - `/mission import-events`: import the latest positive local Codex token event into this project's Mission Invoice ledger.
-
-Supported reference models:
-
-- `GPT-5.5`
-- `GPT-5.4`
-- `GPT-5.4-Mini`
-- `GPT-5.3-Codex`
-- `GPT-5.2`
-
-Default reference model: `GPT-5.5`.
-
-Credit estimates use the official Codex token-based rate card:
-
-```text
-https://help.openai.com/zh-hant/articles/20001106-codex-rate-card
-```
+- `/mission rate-limits`: read the current official Codex usage percentage and reset window from the signed-in local Codex app-server.
 
 ## Use The Script
 
@@ -67,31 +52,26 @@ Available CLI commands:
 - `record` or `record-task`
 - `summary`
 - `mode`
-- `models`
+- `popup`
 - `runtime`
 - `update`
 - `inspect-events`
 - `import-events`
-- `set-model`
+- `rate-limits`
 - `set-mode`
+- `set-popup`
 - `setup-status`
 - `setup`
 
 Examples:
 
 ```bash
-node scripts/token-billing-mcp.js models "{}"
 node scripts/token-billing-mcp.js runtime "{}"
-node scripts/token-billing-mcp.js set-model "{\"model\":\"GPT-5.5\"}"
 node scripts/token-billing-mcp.js set-mode "{\"mode\":\"on\"}"
+node scripts/token-billing-mcp.js set-popup "{\"mode\":\"on\"}"
 node scripts/token-billing-mcp.js inspect-events "{\"count\":5}"
 node scripts/token-billing-mcp.js import-events "{\"projectPath\":\"<absolute-project-path>\"}"
-```
-
-On Windows PowerShell, prefer single quotes around JSON:
-
-```powershell
-node scripts/token-billing-mcp.js set-model '{"model":"GPT-5.5"}'
+node scripts/token-billing-mcp.js rate-limits "{}"
 ```
 
 When running from outside the skill folder, use the absolute path to `scripts/token-billing-mcp.js`.
@@ -134,13 +114,20 @@ Before the final response of a token-consuming task:
    ```
 
 2. If disabled, do not record a receipt and mention that `/mission off` is active.
-3. If enabled, record the task:
+3. Determine the actual model before recording:
+
+   - Use explicit current-task runtime metadata when it identifies the model.
+   - Otherwise inspect recent local events with `inspect-events` and use a model only when the event can be confidently matched to the current Codex thread.
+   - Never use `referenceModel`, the selected credits-rate model, or a static example value as the actual model.
+   - If the actual model cannot be verified, omit both `actualModel` and `model`; the receipt must show `未取得` instead of guessing.
+
+4. Record the task. Replace `<verified-actual-model>` with the verified current-task model; omit the `actualModel` field when it is unavailable. The runtime also attempts to save the current official Codex usage percentage and reset window:
 
    ```bash
-   node scripts/token-billing-mcp.js record '{"projectPath":"<absolute-project-path>","task":"<short task title>","taskType":"coding","model":"GPT-5.5","inputTokens":1200,"outputTokens":600,"totalTokens":1800,"elapsedMs":0,"notes":"Estimated from visible task context."}'
+   node scripts/token-billing-mcp.js record '{"projectPath":"<absolute-project-path>","task":"<short task title>","taskType":"coding","actualModel":"<verified-actual-model>","inputTokens":1200,"outputTokens":600,"totalTokens":1800,"elapsedMs":0,"notes":"Estimated from visible task context."}'
    ```
 
-4. Use the returned `receiptUrl` in the final response as a clickable Markdown link with this exact text:
+5. Use the returned `receiptUrl` in the final response as a clickable Markdown link with this exact text:
 
    ```markdown
    [本次mission payment](file:///.../.codex-token-billing/projects/<project-id>/receipts/TX-....html)
@@ -148,7 +135,11 @@ Before the final response of a token-consuming task:
 
 Use `historyUrl` when the user asks for historical bills or statistics.
 
-If actual runtime usage is unavailable, mark the receipt as estimated. Do not claim it is official billing data.
+If popup mode is enabled, the runtime also sends a compact receipt payload to the optional native macOS companion through `missioninvoice://receipt`. This notification is best-effort: a missing or unavailable App must never block HTML receipt generation.
+
+If the actual model is unavailable, omit `actualModel` and `model`; the receipt will show `未取得` instead of guessing.
+If actual runtime token usage is unavailable, mark the token count as estimated. Do not claim it is official billing data.
+If the Codex app-server rate-limit query is unavailable, receipt generation must continue and store an unavailable snapshot instead of guessing.
 Do not record a normal task with zero tokens. If token usage is unavailable, estimate positive input/output/total token counts before recording. `forceEmpty` is reserved for intentional 0-token test receipts.
 
 ## Runtime Updates
@@ -193,6 +184,11 @@ Generated receipts are static HTML files:
 
 - Chinese-only UI.
 - No language toggle.
+- Shows token consumption and the actual Codex model when available.
+- Does not show credits, rate cards, or reference pricing models.
+- The history and statistics views show official usage percentages and reset windows instead of token totals.
+- Only individual receipt pages show token quantities and line items.
+- Official usage snapshots contain percentages and reset windows, not a remaining token count.
 - Receipt footer links:
   - `歷史帳單` opens `index.html#history`.
   - `統計資訊` opens `index.html#stats`.
@@ -211,4 +207,4 @@ Use these categories when recording:
 
 ## Limitations
 
-Mission Invoice does not read official Codex account plans, hosted billing records, or real account usage. Token counts and credits are estimates unless the runtime provides actual usage data.
+Mission Invoice reads the current Codex rate-limit percentage through the experimental local app-server protocol when available. This is a point-in-time usage snapshot, not a hosted billing record or remaining token count, and the protocol may change across Codex releases. Token counts are estimates unless the runtime provides actual usage data.

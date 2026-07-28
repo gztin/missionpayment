@@ -1,0 +1,324 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* FloatingWindowConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* FloatingWindowConfigurator.swift */; };
+		A10000000000000000000002 /* MissionInvoicePopupApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* MissionInvoicePopupApp.swift */; };
+		A10000000000000000000003 /* PopupPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* PopupPreferences.swift */; };
+		A10000000000000000000004 /* PopupSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* PopupSettingsView.swift */; };
+		A10000000000000000000005 /* ReceiptPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* ReceiptPayload.swift */; };
+		A10000000000000000000006 /* ReceiptPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* ReceiptPopupView.swift */; };
+		A10000000000000000000007 /* ReceiptSoundService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* ReceiptSoundService.swift */; };
+		A10000000000000000000008 /* ReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* ReceiptStore.swift */; };
+		A10000000000000000000009 /* cash-register.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* cash-register.mp3 */; };
+		A1000000000000000000000A /* PopupHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* PopupHomeView.swift */; };
+		A1000000000000000000000B /* TodayReceiptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* TodayReceiptsView.swift */; };
+		A1000000000000000000000C /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* StatusItemController.swift */; };
+		A1000000000000000000000D /* history_dark.svg in Resources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* history_dark.svg */; };
+		A1000000000000000000000E /* setting_dark.svg in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* setting_dark.svg */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B10000000000000000000001 /* FloatingWindowConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingWindowConfigurator.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* MissionInvoicePopupApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionInvoicePopupApp.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* PopupPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupPreferences.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* PopupSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupSettingsView.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* ReceiptPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptPayload.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* ReceiptPopupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptPopupView.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* ReceiptSoundService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSoundService.swift; sourceTree = "<group>"; };
+		B10000000000000000000008 /* ReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* cash-register.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "cash-register.mp3"; sourceTree = "<group>"; };
+		B1000000000000000000000A /* Mission Invoice Popup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Mission Invoice Popup.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1000000000000000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B1000000000000000000000C /* PopupHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupHomeView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000D /* TodayReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayReceiptsView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000E /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		B1000000000000000000000F /* history_dark.svg */ = {isa = PBXFileReference; lastKnownFileType = image.svg; path = history_dark.svg; sourceTree = "<group>"; };
+		B10000000000000000000010 /* setting_dark.svg */ = {isa = PBXFileReference; lastKnownFileType = image.svg; path = setting_dark.svg; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F10000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C10000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				C10000000000000000000002 /* Sources */,
+				C10000000000000000000003 /* Resources */,
+				C10000000000000000000006 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C10000000000000000000002 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000001 /* FloatingWindowConfigurator.swift */,
+				B10000000000000000000002 /* MissionInvoicePopupApp.swift */,
+				B10000000000000000000003 /* PopupPreferences.swift */,
+				B10000000000000000000004 /* PopupSettingsView.swift */,
+				B10000000000000000000005 /* ReceiptPayload.swift */,
+				B10000000000000000000006 /* ReceiptPopupView.swift */,
+				B10000000000000000000007 /* ReceiptSoundService.swift */,
+				B10000000000000000000008 /* ReceiptStore.swift */,
+				B1000000000000000000000C /* PopupHomeView.swift */,
+				B1000000000000000000000D /* TodayReceiptsView.swift */,
+				B1000000000000000000000E /* StatusItemController.swift */,
+			);
+			path = Sources/MissionInvoicePopup;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000003 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C10000000000000000000004 /* App */,
+				C10000000000000000000005 /* Audio */,
+				C10000000000000000000007 /* Icons */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000004 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B1000000000000000000000B /* Info.plist */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000005 /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000009 /* cash-register.mp3 */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000006 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B1000000000000000000000A /* Mission Invoice Popup.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000007 /* Icons */ = {
+			isa = PBXGroup;
+			children = (
+				B1000000000000000000000F /* history_dark.svg */,
+				B10000000000000000000010 /* setting_dark.svg */,
+			);
+			path = Icons;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D10000000000000000000001 /* MissionInvoicePopup */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = H10000000000000000000002 /* Build configuration list for PBXNativeTarget "MissionInvoicePopup" */;
+			buildPhases = (
+				F10000000000000000000001 /* Sources */,
+				F10000000000000000000002 /* Resources */,
+				F10000000000000000000003 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MissionInvoicePopup;
+			productName = "Mission Invoice Popup";
+			productReference = B1000000000000000000000A /* Mission Invoice Popup.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					D10000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = H10000000000000000000001 /* Build configuration list for PBXProject "MissionInvoicePopup" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = zh_TW;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				zh_TW,
+			);
+			mainGroup = C10000000000000000000001;
+			productRefGroup = C10000000000000000000006 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D10000000000000000000001 /* MissionInvoicePopup */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F10000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000009 /* cash-register.mp3 in Resources */,
+				A1000000000000000000000D /* history_dark.svg in Resources */,
+				A1000000000000000000000E /* setting_dark.svg in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F10000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* FloatingWindowConfigurator.swift in Sources */,
+				A10000000000000000000002 /* MissionInvoicePopupApp.swift in Sources */,
+				A10000000000000000000003 /* PopupPreferences.swift in Sources */,
+				A10000000000000000000004 /* PopupSettingsView.swift in Sources */,
+				A10000000000000000000005 /* ReceiptPayload.swift in Sources */,
+				A10000000000000000000006 /* ReceiptPopupView.swift in Sources */,
+				A10000000000000000000007 /* ReceiptSoundService.swift in Sources */,
+				A10000000000000000000008 /* ReceiptStore.swift in Sources */,
+				A1000000000000000000000A /* PopupHomeView.swift in Sources */,
+				A1000000000000000000000B /* TodayReceiptsView.swift in Sources */,
+				A1000000000000000000000C /* StatusItemController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		G10000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		G10000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		G10000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 3;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXECUTABLE_NAME = MissionInvoicePopup;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = tw.ggt.missioninvoice.popup;
+				PRODUCT_NAME = "Mission Invoice Popup";
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		G10000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 3;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXECUTABLE_NAME = MissionInvoicePopup;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = tw.ggt.missioninvoice.popup;
+				PRODUCT_NAME = "Mission Invoice Popup";
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		H10000000000000000000001 /* Build configuration list for PBXProject "MissionInvoicePopup" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G10000000000000000000001 /* Debug */,
+				G10000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		H10000000000000000000002 /* Build configuration list for PBXNativeTarget "MissionInvoicePopup" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G10000000000000000000003 /* Debug */,
+				G10000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E10000000000000000000001 /* Project object */;
+}

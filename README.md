@@ -1,6 +1,6 @@
 # Mission Invoice
 
-Mission Invoice 是 Codex 專用的小插件，會把每次 AI 協作消耗的 token 與 credits 統計成一張本機電子發票，並提供歷史帳單與簡單統計資訊。
+Mission Invoice 是 Codex 專用的小插件，會把每次 AI 協作消耗的 token 與實際使用模型記錄成一張本機電子發票，並提供歷史帳單與簡單統計資訊。
 
 所有資料都只儲存在本機；設定是全域共用，發票紀錄與歷史帳單會依專案路徑分開：
 
@@ -99,29 +99,27 @@ Plugin 版
 /mission setup
 /mission on
 /mission off
-/mission model list
-/mission model GPT-5.5
-/mission model GPT-5.4
-/mission model GPT-5.3-Codex
-/mission model GPT-5.2
 /mission runtime
 /mission update
+/mission rate-limits
 ```
 
 - `/mission setup`：把 Mission Invoice 規則加入目前專案。
 - `/mission on`：啟用任務發票紀錄。
 - `/mission off`：停用任務發票紀錄。
-- `/mission model list`：查看可用的參考模型。
-- `/mission model ...`：切換 credits 估算用的參考模型，預設為 `GPT-5.5`。
 - `/mission runtime`：查看目前使用的 Mission Invoice runtime 版本與路徑。
 - `/mission update`：更新本機 runtime override，用於發票邏輯、HTML 或資料處理 bugfix；不會改 plugin manifest。
+- `/mission rate-limits`：從已登入的本機 Codex app-server 讀取目前官方使用百分比與重置時間。
 
 ## 產出內容
 
 - 中文靜態 HTML 發票。
+- 發票顯示本次 token 消耗與可取得的實際 Codex 模型。
+- 不顯示 credits、Rate card 或參考費率模型。
 - 發票底部提供 `歷史帳單` 與 `統計資訊` 文字連結。
-- 歷史帳單顯示發票號碼、token 花費與查看連結。
-- 統計資訊顯示總消耗 token，並依模型名稱與任務類型分組。
+- 歷史帳單以任務類型整理發票，列表顯示該次開票時保存的官方用量百分比，不顯示 token 數量。
+- 統計資訊顯示最新一次成功取得的官方短期／每週用量、剩餘百分比與重置時間。
+- 只有單張發票顯示該次任務的 token 數量與明細。
 - 資料保存在本機，不需要啟動本機 dashboard server。
 
 ## 資料位置
@@ -314,8 +312,38 @@ https://github.com/gztin/missionpayment/tree/main
 
 `/tree/main` 是 GitHub 網頁路徑，不是可 clone 的 Git URL。
 
+## macOS 浮動收據 App（選配）
+
+Mission Invoice 可以只安裝 Codex 外掛，也可以另外安裝原生 macOS 浮動收據 App。沒有安裝 App 時，HTML 發票與歷史帳單功能不受影響。
+
+本機建置：
+
+```bash
+./companion/build-app.sh
+```
+
+完成後將下列 App 拖入 `/Applications`：
+
+```text
+companion/dist/Mission Invoice Popup.app
+```
+
+第一次手動開啟後，在 Codex 輸入：
+
+```text
+/mission popup on
+```
+
+之後每次成功開立發票，會顯示寬度 265pt、帶有撕紙鋸齒邊的置頂無邊框收據並播放收銀機音效。預設顯示在主螢幕右上角，使用者可在設定視窗選擇九宮格位置，也可直接拖動並保存自訂位置；App 會讓視窗與螢幕可用範圍四側至少保留 50pt，並在螢幕或視窗尺寸改變後重新校正。
+
+設定中的「自動關閉」Switch 可切換手動與自動模式。自動模式可設定 5～20 秒，預設 10 秒，且不受滑鼠停留或設定視窗影響；手動模式會持續顯示，直到按下關閉按鈕。發票關閉後會恢復為 221 × 55pt 用量浮動視窗。使用 `/mission popup off` 可關閉浮動視窗，但不會關閉一般發票。
+
+「播放發票音效」Switch 預設開啟。使用者可以使用內建收銀機音效，也可以在設定視窗選擇只保存在本機的 MP3、M4A、WAV 或 AIFF 音效；檔案最大 5 MB、最長 10 秒，通過 Core Audio 解碼驗證後才會套用。設定頁可播放測試或恢復預設音效。
+
+目前產物採本機 ad hoc 簽章，供開發測試使用；公開下載與 Mac App Store 版本仍需使用 Apple Developer 憑證簽章、公證或送審。
+
 ## 限制
 
-Mission Invoice 不會讀取官方 Codex 帳號方案、實際帳單或官方 usage data。
+Mission Invoice 會在可用時透過 experimental Codex app-server 協定讀取目前方案的使用百分比、限制週期與重置時間。這是當下快照，不是官方帳單或剩餘 token 數；Codex 更新後協定可能變動。
 
-目前 token 與 credits 是依任務上下文與使用者選擇的模型費率做參考估算。若 Codex 沒有提供實際 usage data，發票上的金額應視為輔助紀錄，不是官方帳單。
+若 app-server 查詢失敗，發票仍會正常產生，月曆顯示「官方用量 —」。若 Codex 沒有提供實際 token usage data，發票上的 token 數會標示為估算；若無法取得實際模型，則顯示「未取得」，不會用參考費率模型代替。

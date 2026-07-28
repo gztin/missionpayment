@@ -1,34 +1,36 @@
 {
   "name": "token-billing-panel",
-  "version": "0.2.3+codex.20260724083400",
-  "description": "Mission Invoice 會為 Codex 專案產生本機 Token 電子發票，支援 /mission setup、/mission on/off，並可匯入本機 Codex token 事件。",
+  "version": "0.3.0+codex.20260728171231",
+  "description": "Mission Invoice \u6703\u70ba Codex \u5c08\u6848\u7522\u751f\u672c\u6a5f Token \u96fb\u5b50\u767c\u7968\uff0c\u4e26\u53ef\u9078\u914d macOS \u6d6e\u52d5\u6536\u64da\u3002",
   "author": {
-    "name": "本機開發者"
+    "name": "\u672c\u6a5f\u958b\u767c\u8005"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Mission Invoice",
-    "shortDescription": "自動開立 Token 電子發票，支援 /mission setup、/mission on/off 與本機 Codex token 事件匯入。",
-    "longDescription": "Mission Invoice 會在 Codex 任務消耗 token 後，透過本機 MCP 流程記錄一張估算的 Token 電子發票，內容包含模型、耗時、明細項目與發票連結。一般任務不需要加任何前綴；只要 Mission Invoice 為 ON，就會在任務完成前自動開立發票並在回覆中附上連結。專案第一次使用時可執行 /mission setup：外掛會先詢問是否將 Mission Invoice 規則加入該專案的 AGENTS.md，只有在使用者同意後才會寫入，且會使用可辨識區塊避免重複。只有切換開票功能時才需要使用指令：/mission on 會開啟自動開票，/mission off 會關閉自動開票。/mission model list 可查看支援的參考模型，/mission model <model> 可切換 credits 估算用的參考費率。/mission inspect-events 可檢查本機 Codex token 事件，/mission import-events 可將最新的正數 token 事件匯入目前專案帳本。/mission runtime 可查看目前 runtime 版本，/mission update 可更新發票核心邏輯而不改動 plugin manifest。外掛會產生本機靜態 HTML 發票、歷史帳單與統計資訊，不需要啟動本機 dashboard server。所有資料都只儲存在本機 ~/.codex-token-billing，其中 settings 為全域共用，usage-log 與 receipts 會依專案路徑分開保存。此插件不會讀取官方 Codex 帳號方案、實際帳單資料或對話原文；本機事件匯入只讀取 Codex log 內的 thread、turn、模型與 token 總量等中繼資料。",
-    "developerName": "本機開發者",
-    "category": "生產力",
+    "shortDescription": "\u81ea\u52d5\u958b\u7acb Token \u96fb\u5b50\u767c\u7968\uff0c\u53ef\u9078\u914d macOS \u7f6e\u9802\u6d6e\u52d5\u6536\u64da\u3002",
+    "longDescription": "Mission Invoice \u6703\u5728 Codex \u4efb\u52d9\u6d88\u8017 token \u5f8c\uff0c\u900f\u904e\u672c\u6a5f MCP \u6d41\u7a0b\u8a18\u9304\u4e00\u5f35 Token \u96fb\u5b50\u767c\u7968\uff0c\u5167\u5bb9\u5305\u542b\u5be6\u969b\u6a21\u578b\u3001token \u7528\u91cf\u3001\u8017\u6642\u3001\u660e\u7d30\u9805\u76ee\u8207\u767c\u7968\u9023\u7d50\uff0c\u4e0d\u986f\u793a credits \u6216\u8cbb\u7387\u8cc7\u8a0a\u3002\u958b\u7968\u6642\u6703\u5617\u8a66\u900f\u904e experimental Codex app-server \u4fdd\u5b58\u76ee\u524d\u5b98\u65b9\u4f7f\u7528\u767e\u5206\u6bd4\u8207\u91cd\u7f6e\u6642\u9593\uff1b\u6b77\u53f2\u5e33\u55ae\u4ee5\u6708\u66c6\u986f\u793a\u6bcf\u65e5\u6700\u5f8c\u4e00\u6b21\u6210\u529f\u5feb\u7167\uff0c\u67e5\u8a62\u5931\u6557\u4e0d\u5f71\u97ff\u958b\u7968\u3002\u4e00\u822c\u4efb\u52d9\u4e0d\u9700\u8981\u52a0\u4efb\u4f55\u524d\u7db4\uff1b\u53ea\u8981 Mission Invoice \u70ba ON\uff0c\u5c31\u6703\u5728\u4efb\u52d9\u5b8c\u6210\u524d\u81ea\u52d5\u958b\u7acb\u767c\u7968\u4e26\u5728\u56de\u8986\u4e2d\u9644\u4e0a\u9023\u7d50\u3002\u53e6\u53ef\u5b89\u88dd Mission Invoice Popup for macOS\uff0c\u4e26\u4ee5 /mission popup on \u958b\u555f 265pt \u7f6e\u9802\u7121\u908a\u6846\u6d6e\u52d5\u6536\u64da\u8207\u6536\u9280\u6a5f\u97f3\u6548\uff1b\u6c92\u6709\u5b89\u88dd App \u6216\u901a\u77e5\u5931\u6557\u6642\uff0cHTML \u767c\u7968\u4ecd\u6703\u7167\u5e38\u7522\u751f\u3002\u5c08\u6848\u7b2c\u4e00\u6b21\u4f7f\u7528\u6642\u53ef\u57f7\u884c /mission setup\uff1a\u5916\u639b\u6703\u5148\u8a62\u554f\u662f\u5426\u5c07 Mission Invoice \u898f\u5247\u52a0\u5165\u8a72\u5c08\u6848\u7684 AGENTS.md\uff0c\u53ea\u6709\u5728\u4f7f\u7528\u8005\u540c\u610f\u5f8c\u624d\u6703\u5beb\u5165\uff0c\u4e14\u6703\u4f7f\u7528\u53ef\u8fa8\u8b58\u5340\u584a\u907f\u514d\u91cd\u8907\u3002/mission inspect-events \u53ef\u6aa2\u67e5\u672c\u6a5f Codex token \u4e8b\u4ef6\uff0c/mission import-events \u53ef\u5c07\u6700\u65b0\u7684\u6b63\u6578 token \u4e8b\u4ef6\u8207\u5be6\u969b\u6a21\u578b\u532f\u5165\u76ee\u524d\u5c08\u6848\u5e33\u672c\u3002/mission rate-limits \u53ef\u552f\u8b80\u6aa2\u67e5\u76ee\u524d\u5b98\u65b9\u4f7f\u7528\u767e\u5206\u6bd4\u3002/mission runtime \u53ef\u67e5\u770b\u76ee\u524d runtime \u7248\u672c\uff0c/mission update \u53ef\u66f4\u65b0\u767c\u7968\u6838\u5fc3\u908f\u8f2f\u800c\u4e0d\u6539\u52d5 plugin manifest\u3002\u5916\u639b\u6703\u7522\u751f\u672c\u6a5f\u975c\u614b HTML \u767c\u7968\u3001\u6708\u66c6\u6b77\u53f2\u5e33\u55ae\u8207\u7d71\u8a08\u8cc7\u8a0a\uff0c\u4e0d\u9700\u8981\u555f\u52d5\u672c\u6a5f dashboard server\u3002\u6240\u6709\u8cc7\u6599\u90fd\u53ea\u5132\u5b58\u5728\u672c\u6a5f ~/.codex-token-billing\uff0c\u5176\u4e2d settings \u70ba\u5168\u57df\u5171\u7528\uff0cusage-log \u8207 receipts \u6703\u4f9d\u5c08\u6848\u8def\u5f91\u5206\u958b\u4fdd\u5b58\u3002\u672c\u6a5f\u4e8b\u4ef6\u8207\u7528\u91cf\u5feb\u7167\u4e0d\u6703\u4fdd\u5b58\u767b\u5165\u6191\u8b49\u6216\u5c0d\u8a71\u539f\u6587\u3002",
+    "developerName": "\u672c\u6a5f\u958b\u767c\u8005",
+    "category": "\u751f\u7522\u529b",
     "capabilities": [
-      "互動式",
-      "讀取",
-      "寫入"
+      "\u4e92\u52d5\u5f0f",
+      "\u8b80\u53d6",
+      "\u5beb\u5165"
     ],
     "defaultPrompt": [
       "/mission on",
       "/mission off",
+      "/mission popup on",
+      "/mission popup off",
       "/mission setup",
-      "/mission model list",
       "/mission runtime",
       "/mission update",
       "/mission inspect-events",
       "/mission import-events",
-      "打開我最新的 Mission Invoice。",
-      "顯示我的 Mission Invoice 歷史帳單。",
-      "估算這次任務的 Mission Invoice。"
+      "/mission rate-limits",
+      "\u6253\u958b\u6211\u6700\u65b0\u7684 Mission Invoice\u3002",
+      "\u986f\u793a\u6211\u7684 Mission Invoice \u6b77\u53f2\u5e33\u55ae\u3002",
+      "\u4f30\u7b97\u9019\u6b21\u4efb\u52d9\u7684 Mission Invoice\u3002"
     ]
   },
   "mcpServers": "./.mcp.json"
