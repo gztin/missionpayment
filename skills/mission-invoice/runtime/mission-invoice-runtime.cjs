@@ -183,6 +183,34 @@ function sanitizeRateLimitWindow(window) {
   };
 }
 
+function sanitizeRateLimitResetCredits(value) {
+  if (!value || typeof value !== "object") return null;
+  const availableCount = Number(value.availableCount ?? value.available_count);
+  const credits = Array.isArray(value.credits)
+    ? value.credits.map((credit) => ({
+        id: credit?.id == null ? null : String(credit.id),
+        resetType: credit?.resetType == null
+          ? (credit?.reset_type == null ? null : String(credit.reset_type))
+          : String(credit.resetType),
+        status: credit?.status == null ? null : String(credit.status),
+        grantedAt: Number.isFinite(Number(credit?.grantedAt ?? credit?.granted_at))
+          ? Number(credit?.grantedAt ?? credit?.granted_at)
+          : null,
+        expiresAt: Number.isFinite(Number(credit?.expiresAt ?? credit?.expires_at))
+          ? Number(credit?.expiresAt ?? credit?.expires_at)
+          : null,
+        title: credit?.title == null ? null : String(credit.title),
+        description: credit?.description == null ? null : String(credit.description)
+      }))
+    : [];
+  return {
+    availableCount: Number.isFinite(availableCount)
+      ? Math.max(0, Math.round(availableCount))
+      : null,
+    credits
+  };
+}
+
 function sanitizeRateLimitsResponse(result, capturedAt = new Date().toISOString()) {
   const buckets = result?.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === "object"
     ? result.rateLimitsByLimitId
@@ -193,6 +221,9 @@ function sanitizeRateLimitsResponse(result, capturedAt = new Date().toISOString(
   }
   const primary = sanitizeRateLimitWindow(raw.primary);
   const secondary = sanitizeRateLimitWindow(raw.secondary);
+  const rateLimitResetCredits = sanitizeRateLimitResetCredits(
+    result?.rateLimitResetCredits ?? result?.rate_limit_reset_credits
+  );
   const windows = [primary, secondary].filter(Boolean);
   const preferredWindow = windows.slice().sort((a, b) => Number(b.windowDurationMins || 0) - Number(a.windowDurationMins || 0))[0] || null;
   return {
@@ -205,6 +236,7 @@ function sanitizeRateLimitsResponse(result, capturedAt = new Date().toISOString(
     primary,
     secondary,
     preferredWindow,
+    rateLimitResetCredits,
     errorCode: preferredWindow ? null : "MISSION_INVOICE_RATE_LIMIT_WINDOW_MISSING"
   };
 }

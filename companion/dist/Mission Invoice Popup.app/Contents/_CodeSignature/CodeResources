@@ -4,9 +4,25 @@
 <dict>
 	<key>files</key>
 	<dict>
+		<key>Resources/MissionInvoice.icns</key>
+		<data>
+		gzgxRaq/dRJkLSAdbEMp5XSRLA8=
+		</data>
 		<key>Resources/cash-register.mp3</key>
 		<data>
 		yvIXgTIXohkvVgQzKb1/StQRW6Y=
+		</data>
+		<key>Resources/close_figma.svg</key>
+		<data>
+		wvBwXRlI5CmFD7hhyTnCTqiMNeY=
+		</data>
+		<key>Resources/codex_dark.png</key>
+		<data>
+		sb6cJbGixuitbpRu+uqpNUcIkaM=
+		</data>
+		<key>Resources/codex_light.png</key>
+		<data>
+		gseC6Xbazc2zyz+mLbnZfp9fTQw=
 		</data>
 		<key>Resources/history_dark.svg</key>
 		<data>
@@ -19,11 +35,39 @@
 	</dict>
 	<key>files2</key>
 	<dict>
+		<key>Resources/MissionInvoice.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			tS1fWxsdB8YxJYaHs0Tu3tyH23TTHO9YAU6i2odVofI=
+			</data>
+		</dict>
 		<key>Resources/cash-register.mp3</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			kMZgvgkrroLEowRU0KiLw3Soclm1MI1Jd4QWQhvPGAE=
+			</data>
+		</dict>
+		<key>Resources/close_figma.svg</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ldhsr3iUE0eulnWFrTkzHJLxfxyoM7PfoCn1Qc9E5rY=
+			</data>
+		</dict>
+		<key>Resources/codex_dark.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			aftDhOFhvoog3LlKmsNK6k+/rrZ1FBEKceewcy7MsPw=
+			</data>
+		</dict>
+		<key>Resources/codex_light.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			3n1D8zhhBasglSlYwsJb6w2QPirrbhrvV8SaZIwNHAc=
 			</data>
 		</dict>
 		<key>Resources/history_dark.svg</key>

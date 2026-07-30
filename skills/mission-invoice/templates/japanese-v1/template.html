@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mission Invoice {{receiptNo}}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f6f3ee;
+      --wine: #7a0d1e;
+      --charcoal: #1f1f1f;
+      --muted: #6b6b6b;
+      --divider: #e1ddd6;
+      --canvas: #ece8e1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: start center;
+      padding: 28px 16px 48px;
+      background:
+        radial-gradient(circle at 50% 0, rgba(255, 255, 255, .82), transparent 52%),
+        var(--canvas);
+      color: var(--charcoal);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .receipt {
+      position: relative;
+      width: min(400px, 100%);
+      min-height: 560px;
+      padding: 24px 24px 34px;
+      background: var(--paper);
+      border: 1px solid #ded8cf;
+      border-radius: 16px 16px 6px 6px;
+      box-shadow: 0 18px 42px rgba(53, 45, 38, .18);
+    }
+    .receipt::after {
+      content: "";
+      position: absolute;
+      z-index: 2;
+      left: -1px;
+      right: -1px;
+      bottom: -12px;
+      height: 13px;
+      background: var(--paper);
+      clip-path: polygon(
+        0 0, 2.5% 100%, 5% 0, 7.5% 100%, 10% 0, 12.5% 100%,
+        15% 0, 17.5% 100%, 20% 0, 22.5% 100%, 25% 0, 27.5% 100%,
+        30% 0, 32.5% 100%, 35% 0, 37.5% 100%, 40% 0, 42.5% 100%,
+        45% 0, 47.5% 100%, 50% 0, 52.5% 100%, 55% 0, 57.5% 100%,
+        60% 0, 62.5% 100%, 65% 0, 67.5% 100%, 70% 0, 72.5% 100%,
+        75% 0, 77.5% 100%, 80% 0, 82.5% 100%, 85% 0, 87.5% 100%,
+        90% 0, 92.5% 100%, 95% 0, 97.5% 100%, 100% 0
+      );
+      filter: drop-shadow(0 4px 3px rgba(53, 45, 38, .12));
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .title {
+      position: relative;
+      margin: 0;
+      padding-left: 20px;
+      font-size: 28px;
+      line-height: 1.15;
+      font-weight: 700;
+      letter-spacing: -.025em;
+    }
+    .title::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 1px;
+      width: 8px;
+      height: 28px;
+      background: linear-gradient(180deg, #980b26, var(--wine));
+      box-shadow: 5px 5px 0 rgba(122, 13, 30, .09);
+    }
+    .close {
+      flex: 0 0 auto;
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font: 700 28px/1 Arial, sans-serif;
+    }
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 28px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--divider);
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .meta span:last-child { text-align: right; overflow-wrap: anywhere; }
+    .section { margin-top: 28px; }
+    .section-title {
+      margin: 0;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #bcb7af;
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 700;
+    }
+    .item-row {
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px dotted #cfc9c0;
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .item-row strong {
+      color: var(--charcoal);
+      text-align: right;
+      overflow-wrap: anywhere;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .total-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 16px;
+      padding-top: 18px;
+      border-top: 1px dashed #bcb7af;
+    }
+    .total-label { font-size: 18px; font-weight: 700; }
+    .total-value {
+      color: var(--wine);
+      font-size: 32px;
+      line-height: 1;
+      font-weight: 800;
+    }
+    .total-value small {
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .footer-link {
+      display: block;
+      width: max-content;
+      margin: 28px auto 0;
+      color: var(--wine);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <article class="receipt">
+    <header class="header">
+      <h1 class="title">Mission Invoice</h1>
+      <button class="close" type="button" aria-label="關閉發票">×</button>
+    </header>
+    <div class="meta">
+      <span>{{date}}</span>
+      <span>利用明細番号&nbsp; {{receiptNo}}</span>
+    </div>
+    <section class="section">
+      <h2 class="section-title">任務資訊</h2>
+      <div class="item-row"><span>任務</span><strong>{{task}}</strong></div>
+      <div class="item-row"><span>模型</span><strong>{{model}}</strong></div>
+      <div class="item-row"><span>處理時間</span><strong>{{duration}}</strong></div>
+    </section>
+    <section class="section">
+      <h2 class="section-title">利用量</h2>
+      {{lineItemsHtml}}
+      <div class="total-row">
+        <span class="total-label">Token 合計</span>
+        <strong class="total-value">{{totalTokens}} <small>tokens</small></strong>
+      </div>
+    </section>
+    <a class="footer-link" href="{{statisticsHref}}">統計資訊</a>
+  </article>
+</body>
+</html>

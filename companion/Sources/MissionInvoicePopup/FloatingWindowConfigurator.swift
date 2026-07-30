@@ -3,7 +3,9 @@ import SwiftUI
 
 struct FloatingWindowConfigurator: NSViewRepresentable {
     let store: ReceiptStore
-    let contentSize: CGSize
+    let windowSize: CGSize
+    let hasShadow: Bool
+    let showsCloseButton: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store)
@@ -29,10 +31,8 @@ struct FloatingWindowConfigurator: NSViewRepresentable {
         if isNewWindow {
             coordinator.configuredWindow = window
             window.level = .floating
-            window.styleMask = [.borderless, .fullSizeContentView]
             window.isOpaque = false
             window.backgroundColor = .clear
-            window.hasShadow = false
             window.isMovableByWindowBackground = true
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             window.hidesOnDeactivate = false
@@ -41,12 +41,43 @@ struct FloatingWindowConfigurator: NSViewRepresentable {
             window.delegate = coordinator
         }
 
-        let targetSize = NSSize(width: contentSize.width, height: contentSize.height)
-        let needsResize = window.contentLayoutRect.size != targetSize
+        let targetStyleMask: NSWindow.StyleMask = showsCloseButton
+            ? [.titled, .closable, .fullSizeContentView]
+            : [.borderless, .fullSizeContentView]
+        if window.styleMask != targetStyleMask {
+            window.styleMask = targetStyleMask
+        }
+        window.backgroundColor = showsCloseButton
+            ? NSColor(
+                calibratedRed: 248 / 255,
+                green: 248 / 255,
+                blue: 248 / 255,
+                alpha: 1
+            )
+            : .clear
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+
+        if window.hasShadow != hasShadow {
+            window.hasShadow = hasShadow
+        }
+
+        let targetSize = NSSize(width: windowSize.width, height: windowSize.height)
+        let currentSize = showsCloseButton
+            ? window.frame.size
+            : window.contentLayoutRect.size
+        let needsResize = currentSize != targetSize
         if needsResize {
             window.minSize = .zero
             window.maxSize = targetSize
-            window.setContentSize(targetSize)
+            if showsCloseButton {
+                window.setFrame(
+                    NSRect(origin: window.frame.origin, size: targetSize),
+                    display: true
+                )
+            } else {
+                window.setContentSize(targetSize)
+            }
             window.minSize = targetSize
         }
 

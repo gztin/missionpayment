@@ -1,0 +1,56 @@
+{
+  "id": "japanese-v1",
+  "displayName": "日式發票",
+  "version": 1,
+  "reference": "reference.png",
+  "template": "template.html",
+  "status": "stored",
+  "runtimeIntegration": false,
+  "nativeFloatingReceipt": {
+    "contentWidthPt": 280,
+    "outerWindowWidthPt": 292,
+    "shadowInsetsPt": {
+      "leading": 6,
+      "trailing": 6
+    }
+  },
+  "surface": {
+    "width": 400,
+    "minimumHeight": 560,
+    "padding": 24,
+    "cornerRadius": 16,
+    "receiptEdgeHeight": 12
+  },
+  "spacing": {
+    "section": 32,
+    "row": 16,
+    "rowMinimumHeight": 56
+  },
+  "colors": {
+    "paper": "#F6F3EE",
+    "wine": "#7A0D1E",
+    "charcoal": "#1F1F1F",
+    "muted": "#6B6B6B",
+    "divider": "#E1DDD6",
+    "close": "#000000"
+  },
+  "typography": {
+    "family": "Inter",
+    "title": { "size": 28, "weight": 700 },
+    "section": { "size": 18, "weight": 700 },
+    "label": { "size": 16, "weight": 600 },
+    "value": { "size": 16, "weight": 600 },
+    "meta": { "size": 14, "weight": 500 },
+    "total": { "size": 32, "weight": 800 }
+  },
+  "placeholders": [
+    "date",
+    "receiptNo",
+    "task",
+    "model",
+    "duration",
+    "lineItemsHtml",
+    "totalTokens",
+    "statisticsHref"
+  ]
+}

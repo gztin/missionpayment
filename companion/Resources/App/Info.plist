@@ -8,9 +8,11 @@
     <string>Mission Invoice</string>
     <key>CFBundleExecutable</key>
     <string>MissionInvoicePopup</string>
-    <key>CFBundleIdentifier</key>
-    <string>tw.ggt.missioninvoice.popup</string>
-    <key>CFBundleInfoDictionaryVersion</key>
+	<key>CFBundleIdentifier</key>
+	<string>tw.ggt.missioninvoice.popup</string>
+	<key>CFBundleIconFile</key>
+	<string>MissionInvoice</string>
+	<key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>Mission Invoice</string>

@@ -52,6 +52,7 @@ final class ReceiptStore {
     private(set) var remainingPercent: Int?
     private(set) var usageUpdatedAt: Date?
     private(set) var usageResetsAt: Date?
+    private(set) var availableResetCount: Int?
     private(set) var dashboardMessage = "正在讀取本機用量紀錄…"
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var lastConnectionActivityAt: Date?
@@ -78,6 +79,7 @@ final class ReceiptStore {
     }
 
     func present(_ receipt: ReceiptPayload, playSound: Bool = true) {
+        SettingsWindowController.shared.closeWithoutRestoringDashboard()
         self.receipt = receipt
         rememberProjectLogFile(receipt.projectLogFile)
         reloadDashboard(preferredLogFile: receipt.projectLogFile)
@@ -101,7 +103,16 @@ final class ReceiptStore {
     }
 
     func showSettings() {
+        dismissTask?.cancel()
+        isReceiptPresented = false
+        page = .home
+        receiptWindow?.orderOut(nil)
         SettingsWindowController.shared.show(store: self)
+    }
+
+    func settingsDidClose() {
+        isSettingsPresented = false
+        showHome(closingSettings: false)
     }
 
     func setAutoDismissEnabled(_ enabled: Bool) {
@@ -125,19 +136,13 @@ final class ReceiptStore {
             return soundService.play(customFilename: nil)
         case .custom:
             guard soundService.hasCustomSound(filename: preferences.customSoundFilename) else {
-                preferences.resetCustomSound()
-                return soundService.play(customFilename: nil)
+                return false
             }
             return soundService.play(customFilename: preferences.customSoundFilename)
         }
     }
 
     func setSoundSource(_ source: ReceiptSoundSource) {
-        guard source == .bundled
-            || soundService.hasCustomSound(filename: preferences.customSoundFilename) else {
-            preferences.setSoundSource(.bundled)
-            return
-        }
         preferences.setSoundSource(source)
     }
 
@@ -161,14 +166,17 @@ final class ReceiptStore {
     }
 
     func dismiss() {
-        dismissTask?.cancel()
-        isReceiptPresented = false
-        page = .home
-        reloadDashboard()
-        showWindow()
+        showHome()
     }
 
     func showHome() {
+        showHome(closingSettings: true)
+    }
+
+    private func showHome(closingSettings: Bool) {
+        if closingSettings {
+            SettingsWindowController.shared.closeWithoutRestoringDashboard()
+        }
         dismissTask?.cancel()
         isReceiptPresented = false
         page = .home
@@ -177,6 +185,7 @@ final class ReceiptStore {
     }
 
     func showToday() {
+        SettingsWindowController.shared.closeWithoutRestoringDashboard()
         dismissTask?.cancel()
         isReceiptPresented = false
         page = .today
@@ -187,6 +196,10 @@ final class ReceiptStore {
     func showReceipt(_ item: TodayReceipt) {
         guard let receiptFileURL = item.receiptFileURL else { return }
         NSWorkspace.shared.open(receiptFileURL)
+    }
+
+    func closeWindow() {
+        showHome()
     }
 
     func attach(window: NSWindow) {
@@ -256,6 +269,7 @@ final class ReceiptStore {
             remainingPercent = nil
             usageUpdatedAt = nil
             usageResetsAt = nil
+            availableResetCount = nil
             dashboardMessage = "目前沒有可讀取的發票紀錄"
             return
         }
@@ -288,11 +302,15 @@ final class ReceiptStore {
             usageUpdatedAt = snapshot.capturedAt.flatMap(Self.date(from:))
             usageResetsAt = window.resetsAtIso.flatMap(Self.date(from:))
                 ?? window.resetsAt.map { Date(timeIntervalSince1970: $0) }
+            availableResetCount = snapshot.rateLimitResetCredits?.availableCount.map {
+                max(0, $0)
+            }
             dashboardMessage = "Codex 官方用量快照"
         } else {
             remainingPercent = nil
             usageUpdatedAt = nil
             usageResetsAt = nil
+            availableResetCount = nil
             dashboardMessage = "目前無法取得 Codex 官方用量"
         }
     }

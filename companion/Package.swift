@@ -16,6 +16,9 @@ let package = Package(
             path: "Sources/MissionInvoicePopup",
             resources: [
                 .copy("../../Resources/Audio/cash-register.mp3"),
+                .copy("../../Resources/Icons/codex_dark.png"),
+                .copy("../../Resources/Icons/codex_light.png"),
+                .copy("../../Resources/Icons/close_figma.svg"),
                 .copy("../../Resources/Icons/history_dark.svg"),
                 .copy("../../Resources/Icons/setting_dark.svg")
             ]

@@ -2,9 +2,15 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum PopupSettingsLayout {
+    static let contentSize = CGSize(width: 280, height: 560)
+    static let dismissSecondsStep = 5
+}
+
 struct PopupSettingsView: View {
     let store: ReceiptStore
     @State private var soundError: SoundErrorPresentation?
+    @State private var soundToRemove: String?
 
     private var preferences: PopupPreferences { store.preferences }
 
@@ -30,31 +36,34 @@ struct PopupSettingsView: View {
                 Toggle("自動關閉", isOn: autoDismissBinding)
                     .toggleStyle(.switch)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("關閉時間")
-                        Spacer()
-                        Text("\(preferences.autoDismissSeconds) 秒")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
+                if preferences.autoDismissEnabled {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("秒數設定")
+                            Spacer()
+                            Text("\(preferences.autoDismissSeconds) 秒")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
 
-                    Slider(
-                        value: dismissSecondsBinding,
-                        in: Double(PopupPreferences.minimumDismissSeconds)...Double(PopupPreferences.maximumDismissSeconds),
-                        step: 1
-                    )
+                        Slider(
+                            value: dismissSecondsBinding,
+                            in: Double(PopupPreferences.minimumDismissSeconds)...Double(PopupPreferences.maximumDismissSeconds),
+                            step: Double(PopupSettingsLayout.dismissSecondsStep)
+                        )
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack {
-                        Text("\(PopupPreferences.minimumDismissSeconds) 秒")
-                        Spacer()
-                        Text("\(PopupPreferences.maximumDismissSeconds) 秒")
+                        HStack {
+                            Text("\(PopupPreferences.minimumDismissSeconds) 秒")
+                            Spacer()
+                            Text("\(PopupPreferences.maximumDismissSeconds) 秒")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .disabled(!preferences.autoDismissEnabled)
-                .opacity(preferences.autoDismissEnabled ? 1 : 0.45)
 
                 Text(preferences.autoDismissEnabled
                      ? "每張新發票出現時會重新計時。"
@@ -64,14 +73,13 @@ struct PopupSettingsView: View {
             }
 
             Section("發票音效") {
-                Toggle("播放發票音效", isOn: soundEnabledBinding)
+                Toggle("音效", isOn: soundEnabledBinding)
                     .toggleStyle(.switch)
 
-                Picker("使用音效", selection: soundSourceBinding) {
+                Picker("來源", selection: soundSourceBinding) {
                     Text("預設").tag(ReceiptSoundSource.bundled)
                     Text("自訂")
                         .tag(ReceiptSoundSource.custom)
-                        .disabled(preferences.customSoundFilename == nil)
                 }
                 .pickerStyle(.segmented)
                 .disabled(!preferences.soundEnabled)
@@ -85,25 +93,27 @@ struct PopupSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("選擇音效檔") {
-                        chooseSound()
-                    }
-                }
 
-                HStack {
-                    Button("播放測試") {
-                        if !store.playReceiptSound() {
-                            soundError = SoundErrorPresentation(message: "音效無法播放，請重新選擇檔案。")
+                    if preferences.soundSource == .custom {
+                        Button("來源") {
+                            chooseSound()
                         }
-                    }
-                    .disabled(!preferences.soundEnabled)
 
-                    if preferences.customSoundFilename != nil {
-                        Button("移除自訂音效") {
-                            store.resetCustomSound()
+                        if preferences.customSoundFilename != nil {
+                            Button("移除") {
+                                soundToRemove = preferences.customSoundDisplayName
+                                    ?? preferences.customSoundFilename
+                            }
                         }
                     }
                 }
+
+                Button("播放測試") {
+                    if !store.playReceiptSound() {
+                        soundError = SoundErrorPresentation(message: "音效無法播放，請重新選擇檔案。")
+                    }
+                }
+                .disabled(!canPlaySelectedSound)
 
                 Text("支援 MP3、M4A、WAV、AIFF；最大 5 MB，最長 10 秒。檔案只會保存在這台 Mac。")
                     .font(.caption)
@@ -111,14 +121,54 @@ struct PopupSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: 560)
+        .frame(
+            width: PopupSettingsLayout.contentSize.width,
+            height: PopupSettingsLayout.contentSize.height
+        )
         .preferredColorScheme(preferences.appearance.colorScheme)
+        .alert(removalAlertTitle, isPresented: removalAlertIsPresented) {
+            Button("取消", role: .cancel) {
+                soundToRemove = nil
+            }
+            Button("移除", role: .destructive) {
+                store.resetCustomSound()
+                soundToRemove = nil
+            }
+        }
         .alert(item: $soundError) { error in
             Alert(
                 title: Text("無法套用音效"),
                 message: Text(error.message),
                 dismissButton: .default(Text("好"))
             )
+        }
+    }
+
+    private var removalAlertIsPresented: Binding<Bool> {
+        Binding(
+            get: { soundToRemove != nil },
+            set: { isPresented in
+                if !isPresented {
+                    soundToRemove = nil
+                }
+            }
+        )
+    }
+
+    private var removalAlertTitle: String {
+        guard let soundToRemove else {
+            return "是否要移除這個音效檔？"
+        }
+        return "是否要移除 \(soundToRemove)？"
+    }
+
+    private var canPlaySelectedSound: Bool {
+        guard preferences.soundEnabled else { return false }
+        switch preferences.soundSource {
+        case .bundled:
+            return true
+        case .custom:
+            return preferences.customSoundFilename != nil
         }
     }
 

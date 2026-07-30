@@ -28,7 +28,7 @@ enum PopupAppearance: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum PopupPosition: String, CaseIterable, Identifiable, Sendable {
-    static let screenMargin: CGFloat = 50
+    static let screenMargin: CGFloat = 10
 
     case topLeft
     case topCenter

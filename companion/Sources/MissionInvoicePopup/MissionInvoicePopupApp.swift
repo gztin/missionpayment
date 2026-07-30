@@ -30,11 +30,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private var windowController: NSWindowController?
     private weak var store: ReceiptStore?
+    private var restoresDashboardOnClose = true
 
     private override init() {}
 
     func show(store: ReceiptStore) {
         self.store = store
+        restoresDashboardOnClose = true
         store.setSettingsPresented(true)
         let controller: NSWindowController
         if let windowController {
@@ -46,9 +48,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             let window = NSWindow(contentViewController: hostingController)
             window.title = "Mission Invoice 設定"
             window.styleMask = [.titled, .closable, .miniaturizable]
-            window.setContentSize(NSSize(width: 420, height: 560))
-            window.minSize = NSSize(width: 420, height: 560)
-            window.maxSize = NSSize(width: 420, height: 560)
+            let contentSize = PopupSettingsLayout.contentSize
+            window.setContentSize(contentSize)
+            window.minSize = contentSize
+            window.maxSize = contentSize
             window.isReleasedWhenClosed = false
             window.delegate = self
             window.center()
@@ -69,8 +72,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         windowController?.close()
     }
 
+    func closeWithoutRestoringDashboard() {
+        guard isVisible else {
+            store?.setSettingsPresented(false)
+            return
+        }
+        restoresDashboardOnClose = false
+        windowController?.close()
+    }
+
     func windowWillClose(_ notification: Notification) {
-        store?.setSettingsPresented(false)
+        let shouldRestoreDashboard = restoresDashboardOnClose
+        restoresDashboardOnClose = true
+        if shouldRestoreDashboard {
+            store?.settingsDidClose()
+        } else {
+            store?.setSettingsPresented(false)
+        }
     }
 }
 
@@ -84,7 +102,6 @@ struct MissionInvoicePopupApp: App {
             PopupRootView(store: store)
         }
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
         .defaultSize(width: 221, height: 55)
         .commandsRemoved()
     }

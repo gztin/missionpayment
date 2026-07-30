@@ -1,7 +1,9 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import MissionInvoicePopup
 
+@Suite(.serialized)
 @MainActor
 struct ReceiptStoreTests {
     @Test
@@ -63,6 +65,47 @@ struct ReceiptStoreTests {
     }
 
     @Test
+    func closingTodayRestoresDashboardWindow() {
+        _ = NSApplication.shared
+        let defaults = UserDefaults(suiteName: "TodayWindowFlowTests")!
+        defaults.removePersistentDomain(forName: "TodayWindowFlowTests")
+        let store = ReceiptStore(
+            preferences: PopupPreferences(defaults: defaults)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 260),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        store.attach(window: window)
+
+        store.showToday()
+        #expect(window.isVisible)
+        #expect(store.page == .today)
+
+        store.closeWindow()
+        #expect(window.isVisible)
+        #expect(store.page == .home)
+        #expect(!store.isReceiptPresented)
+    }
+
+    @Test
+    func todayReceiptListIdentifiesItemsByReceiptNumberNotTaskName() {
+        let item = ReceiptStore.TodayReceipt(
+            id: ReceiptPayload.sample.receiptNo,
+            payload: .sample,
+            receiptFileURL: nil
+        )
+
+        let label = TodayReceiptsView.receiptAccessibilityLabel(for: item)
+
+        #expect(label.contains(ReceiptPayload.sample.receiptNo))
+        #expect(!label.contains(ReceiptPayload.sample.task))
+        #expect(label.contains("4,420 tokens"))
+    }
+
+    @Test
     func autoDismissContinuesWhileSettingsArePresented() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults(suiteName: "StrictAutoDismissTests")!
@@ -82,23 +125,138 @@ struct ReceiptStoreTests {
     func popupLayoutUsesSizeForCurrentContent() {
         #expect(
             PopupLayout.contentSize(isReceiptPresented: false, page: .home)
-                == CGSize(width: 221, height: 55)
+                == CGSize(width: 233, height: 48)
         )
-        #expect(PopupLayout.dashboardPadding == 10)
-        #expect(PopupLayout.dashboardButtonSize == CGSize(width: 44, height: 35))
+        #expect(
+            PopupLayout.contentSize(
+                isReceiptPresented: false,
+                page: .home,
+                usageText: "100000000000000%",
+                resetTimeText: "重置時間：12月31日",
+                resetCountText: "重置次數：2次"
+            ).width
+                > PopupLayout.dashboardMinimumSurfaceSize.width
+                    + (PopupLayout.dashboardShadowInset * 2)
+        )
+        #expect(PopupLayout.dashboardMinimumSurfaceSize == CGSize(width: 225, height: 40))
+        #expect(PopupLayout.dashboardShadowInset == 4)
+        #expect(PopupLayout.dashboardHorizontalPadding == 10)
+        #expect(PopupLayout.dashboardVerticalPadding == 5)
+        #expect(PopupLayout.dashboardIconSize == 30)
+        #expect(PopupLayout.connectionIndicatorSize == 10)
+        #expect(PopupLayout.dashboardGroupSpacing == 15)
+        #expect(PopupLayout.dashboardResetFontSize == 10)
+        #expect(PopupLayout.dashboardResetLineSpacing == 5)
+        #expect(PopupLayout.dashboardCornerRadius == 12.875)
         #expect(
             PopupLayout.contentSize(isReceiptPresented: false, page: .today)
-                == CGSize(width: 300, height: 260)
+                == CGSize(width: 292, height: 388)
+        )
+        #expect(PopupLayout.todaySurfaceSize == CGSize(width: 280, height: 376))
+        #expect(
+            PopupLayout.todayShadowInsets
+                == SwiftUI.EdgeInsets(top: 2, leading: 6, bottom: 10, trailing: 6)
         )
         #expect(
             PopupLayout.contentSize(isReceiptPresented: true, page: .home)
-                == CGSize(width: 265, height: 374)
+                == CGSize(width: 292, height: 370)
         )
+        #expect(PopupLayout.receiptSurfaceSize == CGSize(width: 280, height: 358))
+        #expect(PopupLayout.receiptSize.width == PopupLayout.todaySize.width)
         #expect(PopupLayout.showsMaterialBackground(isReceiptPresented: false))
-        #expect(!PopupLayout.showsMaterialBackground(isReceiptPresented: true))
+        #expect(PopupLayout.showsMaterialBackground(isReceiptPresented: true))
         #expect(PopupLayout.usesCapsuleBackground(isReceiptPresented: false, page: .home))
         #expect(!PopupLayout.usesCapsuleBackground(isReceiptPresented: false, page: .today))
         #expect(!PopupLayout.usesCapsuleBackground(isReceiptPresented: true, page: .home))
+        #expect(!PopupLayout.usesWindowShadow(isReceiptPresented: false, page: .home))
+        #expect(!PopupLayout.usesWindowShadow(isReceiptPresented: false, page: .today))
+        #expect(!PopupLayout.usesWindowShadow(isReceiptPresented: true, page: .home))
+        #expect(!PopupLayout.usesNativeCloseButton(isReceiptPresented: false, page: .home))
+        #expect(!PopupLayout.usesNativeCloseButton(isReceiptPresented: false, page: .today))
+        #expect(!PopupLayout.usesNativeCloseButton(isReceiptPresented: true, page: .today))
+    }
+
+    @Test
+    func dashboardResetTimeUsesTaipeiMonthAndDay() {
+        #expect(PopupHomeView.resetTimeText(for: nil) == "重置時間：--")
+        #expect(
+            PopupHomeView.resetTimeText(
+                for: Date(timeIntervalSince1970: 1_785_903_353)
+            ) == "重置時間：8月5日"
+        )
+        #expect(PopupHomeView.resetCountText(for: nil) == "重置次數：--")
+        #expect(PopupHomeView.resetCountText(for: 1) == "重置次數：1次")
+        #expect(PopupHomeView.resetCountText(for: 2) == "重置次數：2次")
+    }
+
+    @Test
+    func dashboardUsesFullResetCreditCountInsteadOfRateLimitWindowCount() {
+        #expect(usageSnapshot(availableResetCount: nil).rateLimitResetCredits == nil)
+        #expect(
+            usageSnapshot(availableResetCount: 0)
+                .rateLimitResetCredits?.availableCount == 0
+        )
+        #expect(
+            usageSnapshot(availableResetCount: 1)
+                .rateLimitResetCredits?.availableCount == 1
+        )
+        #expect(
+            usageSnapshot(availableResetCount: 2)
+                .rateLimitResetCredits?.availableCount == 2
+        )
+    }
+
+    @Test
+    func accountUsageSnapshotDecodesOlderPayloadWithoutResetCredits() throws {
+        let data = Data(
+            """
+            {
+              "status": "available",
+              "capturedAt": null,
+              "primary": null,
+              "secondary": null,
+              "preferredWindow": null
+            }
+            """.utf8
+        )
+
+        let snapshot = try JSONDecoder().decode(
+            ReceiptPayload.AccountUsageSnapshot.self,
+            from: data
+        )
+
+        #expect(snapshot.rateLimitResetCredits == nil)
+    }
+
+    @Test
+    func standardReceiptLineItemLabelsAreLocalizedForDisplay() {
+        #expect(
+            ReceiptPopupView.localizedLineItemLabel("Read and understand")
+                == "閱讀與理解"
+        )
+        #expect(
+            ReceiptPopupView.localizedLineItemLabel("Generate and summarize")
+                == "生成與摘要"
+        )
+        #expect(
+            ReceiptPopupView.localizedLineItemLabel("Custom item")
+                == "Custom item"
+        )
+    }
+
+    private func usageSnapshot(
+        availableResetCount: Int?
+    ) -> ReceiptPayload.AccountUsageSnapshot {
+        .init(
+            status: "available",
+            capturedAt: "2026-07-29T06:28:26.270Z",
+            primary: nil,
+            secondary: nil,
+            preferredWindow: nil,
+            rateLimitResetCredits: availableResetCount.map {
+                .init(availableCount: $0, credits: [])
+            }
+        )
     }
 
     @Test
@@ -108,18 +266,46 @@ struct ReceiptStoreTests {
         defaults.removePersistentDomain(forName: "SettingsWindowTests")
         let store = ReceiptStore(preferences: PopupPreferences(defaults: defaults))
         let controller = SettingsWindowController.shared
+        let dashboardWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 260),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        store.attach(window: dashboardWindow)
 
-        controller.show(store: store)
+        store.showSettings()
         #expect(controller.isVisible)
         #expect(store.isSettingsPresented)
+        #expect(!dashboardWindow.isVisible)
+        #expect(PopupSettingsLayout.contentSize == CGSize(width: 280, height: 560))
+        #expect(PopupSettingsLayout.dismissSecondsStep == 5)
 
-        controller.show(store: store)
+        store.showSettings()
         #expect(controller.isVisible)
         #expect(store.isSettingsPresented)
+        #expect(!dashboardWindow.isVisible)
 
         controller.close()
         #expect(!controller.isVisible)
         #expect(!store.isSettingsPresented)
+        #expect(dashboardWindow.isVisible)
+        #expect(store.page == .home)
+
+        store.showSettings()
+        store.showToday()
+        #expect(!controller.isVisible)
+        #expect(!store.isSettingsPresented)
+        #expect(dashboardWindow.isVisible)
+        #expect(store.page == .today)
+
+        store.showSettings()
+        store.present(.sample, playSound: false)
+        #expect(!controller.isVisible)
+        #expect(!store.isSettingsPresented)
+        #expect(dashboardWindow.isVisible)
+        #expect(store.isReceiptPresented)
+        store.dismiss()
     }
 
     @Test
@@ -190,6 +376,26 @@ struct ReceiptStoreTests {
     }
 
     @Test
+    func customSoundCanBeSelectedBeforeFileIsImported() {
+        let suiteName = "PopupPreferencesEmptyCustomSoundTests"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let preferences = PopupPreferences(defaults: defaults)
+        let soundService = ReceiptSoundService(
+            applicationSupportDirectory: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        let store = ReceiptStore(preferences: preferences, soundService: soundService)
+
+        store.setSoundSource(.custom)
+
+        #expect(preferences.soundSource == .custom)
+        #expect(preferences.customSoundFilename == nil)
+        #expect(!store.playReceiptSound())
+        #expect(preferences.soundSource == .custom)
+    }
+
+    @Test
     func appearanceCanBePersistedAndRestored() {
         let suiteName = "PopupPreferencesAppearanceTests"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -222,13 +428,13 @@ struct ReceiptStoreTests {
             PopupPosition.topRight.origin(
                 windowSize: windowSize,
                 visibleFrame: visibleFrame
-            ) == CGPoint(x: 1_054, y: 447)
+            ) == CGPoint(x: 1_094, y: 487)
         )
         #expect(
             PopupPosition.bottomLeft.origin(
                 windowSize: windowSize,
                 visibleFrame: visibleFrame
-            ) == CGPoint(x: 50, y: 74)
+            ) == CGPoint(x: 10, y: 34)
         )
         #expect(
             PopupPosition.center.origin(
@@ -240,7 +446,7 @@ struct ReceiptStoreTests {
             ReceiptStore.availableOriginRange(
                 windowSize: windowSize,
                 visibleFrame: visibleFrame
-            ) == CGRect(x: 50, y: 74, width: 1_004, height: 373)
+            ) == CGRect(x: 10, y: 34, width: 1_084, height: 453)
         )
     }
 

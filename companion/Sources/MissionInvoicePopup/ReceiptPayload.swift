@@ -30,6 +30,22 @@ struct ReceiptPayload: Codable, Equatable, Sendable {
         let primary: RateLimitWindow?
         let secondary: RateLimitWindow?
         let preferredWindow: RateLimitWindow?
+        let rateLimitResetCredits: RateLimitResetCredits?
+    }
+
+    struct RateLimitResetCredits: Codable, Equatable, Sendable {
+        let availableCount: Int?
+        let credits: [RateLimitResetCredit]?
+    }
+
+    struct RateLimitResetCredit: Codable, Equatable, Sendable {
+        let id: String?
+        let resetType: String?
+        let status: String?
+        let grantedAt: Double?
+        let expiresAt: Double?
+        let title: String?
+        let description: String?
     }
 
     struct RateLimitWindow: Codable, Equatable, Sendable {
