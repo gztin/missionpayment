@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR=${0:A:h}
-APP_NAME="Mission Invoice Popup"
+APP_NAME="AURA"
 BUILD_DIR="$SCRIPT_DIR/.build"
 DERIVED_DATA_DIR="$BUILD_DIR/XcodeDerivedData"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
@@ -21,6 +21,6 @@ xcodebuild \
 rm -rf "$APP_DIR"
 mkdir -p "$OUTPUT_DIR"
 ditto "$BUILT_APP_DIR" "$APP_DIR"
-ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$OUTPUT_DIR/Mission-Invoice-Popup-macOS.zip"
+ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$OUTPUT_DIR/AURA-macOS.zip"
 
 echo "$APP_DIR"

@@ -34,7 +34,7 @@ struct ReceiptPopupView: View {
         .foregroundStyle(inkColor)
         .onOpenURL { store.handle(url: $0) }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Mission Invoice 發票")
+        .accessibilityLabel("AURA 任務收據")
     }
 
     private var header: some View {
@@ -44,7 +44,7 @@ struct ReceiptPopupView: View {
                     .fill(accentColor)
                     .frame(width: 6, height: 28)
 
-                Text("Mission Invoice")
+                Text("AURA")
                     .font(.system(size: 20, weight: .bold))
             }
 

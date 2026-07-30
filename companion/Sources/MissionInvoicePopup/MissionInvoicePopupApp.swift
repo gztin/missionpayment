@@ -46,7 +46,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 rootView: PopupSettingsView(store: store)
             )
             let window = NSWindow(contentViewController: hostingController)
-            window.title = "Mission Invoice 設定"
+            window.title = "AURA 設定"
             window.styleMask = [.titled, .closable, .miniaturizable]
             let contentSize = PopupSettingsLayout.contentSize
             window.setContentSize(contentSize)
@@ -98,7 +98,7 @@ struct MissionInvoicePopupApp: App {
     private let store = ReceiptStore.shared
 
     var body: some Scene {
-        Window("Mission Invoice", id: "receipt") {
+        Window("AURA", id: "receipt") {
             PopupRootView(store: store)
         }
         .windowStyle(.hiddenTitleBar)

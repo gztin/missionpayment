@@ -278,7 +278,7 @@ struct ReceiptStoreTests {
         #expect(controller.isVisible)
         #expect(store.isSettingsPresented)
         #expect(!dashboardWindow.isVisible)
-        #expect(PopupSettingsLayout.contentSize == CGSize(width: 280, height: 560))
+        #expect(PopupSettingsLayout.contentSize == CGSize(width: 280, height: 640))
         #expect(PopupSettingsLayout.dismissSecondsStep == 5)
 
         store.showSettings()
@@ -461,6 +461,24 @@ struct ReceiptStoreTests {
         #expect(throws: ReceiptSoundError.fileTooLarge) {
             try ReceiptSoundService.validateFileSize(ReceiptSoundService.maximumFileSize + 1)
         }
+    }
+
+    @Test
+    func billingDirectoryRequiresSettingsOrProjects() throws {
+        let testDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MissionInvoiceDirectoryTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: testDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+
+        #expect(!BillingDirectoryAccess.isBillingDirectory(testDirectory))
+
+        let projectsDirectory = testDirectory.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: projectsDirectory,
+            withIntermediateDirectories: true
+        )
+
+        #expect(BillingDirectoryAccess.isBillingDirectory(testDirectory))
     }
 
     @Test

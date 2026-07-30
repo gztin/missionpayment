@@ -17,8 +17,8 @@ final class StatusItemController: NSObject {
         guard let button = statusItem.button else { return }
         button.image = Self.makeStatusIcon()
         button.imagePosition = .imageOnly
-        button.toolTip = "Mission Invoice"
-        button.setAccessibilityLabel("Mission Invoice")
+        button.toolTip = "AURA"
+        button.setAccessibilityLabel("AURA")
     }
 
     private static func makeStatusIcon() -> NSImage {
@@ -72,7 +72,7 @@ final class StatusItemController: NSObject {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "Mission Invoice"
+        image.accessibilityDescription = "AURA"
         return image
     }
 
@@ -95,7 +95,7 @@ final class StatusItemController: NSObject {
         ))
         menu.addItem(.separator())
         let quitItem = menuItem(
-            title: "結束 Mission Invoice",
+            title: "結束 AURA",
             symbolName: "power",
             action: #selector(quit)
         )

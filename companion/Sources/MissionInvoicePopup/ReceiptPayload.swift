@@ -59,7 +59,7 @@ struct ReceiptPayload: Codable, Equatable, Sendable {
     static let sample = ReceiptPayload(
         version: 1,
         receiptNo: "TX-2607-DEMO01",
-        task: "Mission Invoice 浮動收據",
+        task: "AURA 浮動收據",
         category: "coding",
         model: "GPT-5.6-SOL",
         endedAt: ISO8601DateFormatter().string(from: .now),

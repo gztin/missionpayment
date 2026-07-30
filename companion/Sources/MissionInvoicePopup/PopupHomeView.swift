@@ -298,7 +298,7 @@ struct PopupHomeView: View {
         .padding(PopupLayout.dashboardShadowInset)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Mission Invoice，剩餘用量 \(remainingUsageText)，"
+            "AURA，剩餘用量 \(remainingUsageText)，"
                 + "\(store.connectionState.title)，\(resetTimeText)，\(resetCountText)"
         )
     }

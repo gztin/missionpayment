@@ -2,6 +2,112 @@ import AppKit
 import Foundation
 import Observation
 
+enum BillingDirectoryAccessError: LocalizedError, Equatable {
+    case invalidDirectory
+    case bookmarkCreationFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDirectory:
+            "請選擇包含 settings.json 或 projects 資料夾的 .codex-token-billing 資料夾。"
+        case .bookmarkCreationFailed:
+            "無法保存資料夾權限，請重新選擇。"
+        }
+    }
+}
+
+@MainActor
+final class BillingDirectoryAccess {
+    static let shared = BillingDirectoryAccess()
+
+    private let defaults: UserDefaults
+    private var activeURL: URL?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        restore()
+    }
+
+    deinit {
+        activeURL?.stopAccessingSecurityScopedResource()
+    }
+
+    var directoryURL: URL? {
+        activeURL
+    }
+
+    func authorize(_ directoryURL: URL) throws {
+        guard Self.isBillingDirectory(directoryURL) else {
+            throw BillingDirectoryAccessError.invalidDirectory
+        }
+
+        let bookmark: Data
+        do {
+            bookmark = try directoryURL.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        } catch {
+            throw BillingDirectoryAccessError.bookmarkCreationFailed
+        }
+
+        replaceActiveURL(with: directoryURL)
+        defaults.set(bookmark, forKey: Self.bookmarkKey)
+    }
+
+    static func isBillingDirectory(
+        _ directoryURL: URL,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else {
+            return false
+        }
+
+        let settingsURL = directoryURL.appendingPathComponent("settings.json")
+        let projectsURL = directoryURL.appendingPathComponent("projects", isDirectory: true)
+        return fileManager.fileExists(atPath: settingsURL.path)
+            || fileManager.fileExists(atPath: projectsURL.path)
+    }
+
+    private func restore() {
+        guard let bookmark = defaults.data(forKey: Self.bookmarkKey) else { return }
+        var isStale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: bookmark,
+            options: [.withSecurityScope, .withoutUI],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        ) else {
+            defaults.removeObject(forKey: Self.bookmarkKey)
+            return
+        }
+
+        replaceActiveURL(with: url)
+        if isStale,
+           let refreshed = try? url.bookmarkData(
+               options: .withSecurityScope,
+               includingResourceValuesForKeys: nil,
+               relativeTo: nil
+           ) {
+            defaults.set(refreshed, forKey: Self.bookmarkKey)
+        }
+    }
+
+    private func replaceActiveURL(with url: URL) {
+        if activeURL != url {
+            activeURL?.stopAccessingSecurityScopedResource()
+        }
+        _ = url.startAccessingSecurityScopedResource()
+        activeURL = url
+    }
+
+    private static let bookmarkKey = "billingDirectory.securityScopedBookmark.v1"
+}
+
 @MainActor
 @Observable
 final class ReceiptStore {
@@ -59,6 +165,7 @@ final class ReceiptStore {
     private(set) var isReceiptPresented = false
     let preferences: PopupPreferences
     let soundService: ReceiptSoundService
+    @ObservationIgnored private let billingDirectoryAccess: BillingDirectoryAccess
 
     private var dismissTask: Task<Void, Never>?
     private(set) var isSettingsPresented = false
@@ -70,10 +177,26 @@ final class ReceiptStore {
 
     init(
         preferences: PopupPreferences = .shared,
-        soundService: ReceiptSoundService = ReceiptSoundService()
+        soundService: ReceiptSoundService = ReceiptSoundService(),
+        billingDirectoryAccess: BillingDirectoryAccess = .shared
     ) {
         self.preferences = preferences
         self.soundService = soundService
+        self.billingDirectoryAccess = billingDirectoryAccess
+        reloadDashboard()
+        refreshConnectionState(establishBaseline: true)
+    }
+
+    var hasBillingDirectoryAccess: Bool {
+        billingDirectoryAccess.directoryURL != nil
+    }
+
+    var billingDirectoryName: String? {
+        billingDirectoryAccess.directoryURL?.lastPathComponent
+    }
+
+    func authorizeBillingDirectory(_ url: URL) throws {
+        try billingDirectoryAccess.authorize(url)
         reloadDashboard()
         refreshConnectionState(establishBaseline: true)
     }
@@ -433,8 +556,8 @@ final class ReceiptStore {
     }
 
     private func isPopupEnabled() -> Bool {
-        let settingsFile = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex-token-billing/settings.json")
+        guard let billingDirectory = billingDirectoryAccess.directoryURL else { return false }
+        let settingsFile = billingDirectory.appendingPathComponent("settings.json")
         guard let data = try? Data(contentsOf: settingsFile),
               let settings = try? JSONDecoder().decode(BillingSettings.self, from: data)
         else { return false }
@@ -451,8 +574,9 @@ final class ReceiptStore {
             return URL(fileURLWithPath: path)
         }
 
-        let projectsDirectory = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex-token-billing/projects", isDirectory: true)
+        guard let billingDirectory = billingDirectoryAccess.directoryURL else { return nil }
+        let projectsDirectory = billingDirectory
+            .appendingPathComponent("projects", isDirectory: true)
         guard let projectDirectories = try? fileManager.contentsOfDirectory(
             at: projectsDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey],

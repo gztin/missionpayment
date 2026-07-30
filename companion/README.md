@@ -1,6 +1,6 @@
-# Mission Invoice Popup for macOS
+# AURA for macOS
 
-這是 Mission Invoice 的選配原生 macOS 浮動收據程式。外掛即使沒有安裝本程式，仍可正常產生 HTML 發票。
+這是 Mission Invoice 的選配原生 macOS 用量與任務收據程式。外掛即使沒有安裝本程式，仍可正常產生 HTML 發票。
 
 ## 建置
 
@@ -22,15 +22,15 @@ chmod +x companion/build-app.sh
 輸出：
 
 ```text
-companion/dist/Mission Invoice Popup.app
-companion/dist/Mission-Invoice-Popup-macOS.zip
+companion/dist/AURA.app
+companion/dist/AURA-macOS.zip
 ```
 
-Xcode 專案目前使用 ad hoc 本機簽章，適合開發與本機測試。正式散布或 Mac App Store 上架前，請在 Signing & Capabilities 選擇 Apple Developer Team、設定 App Sandbox，並完成公證／商店送審。
+Xcode 專案的 Debug 使用 Apple Development，Release 使用 Apple Distribution，並已啟用 App Sandbox。正式 Archive 前，需確認本機鑰匙圈已有對應 Team 的有效簽章憑證與私鑰。
 
 ## 安裝與啟用
 
-1. 將 `Mission Invoice Popup.app` 拖入 `/Applications`。
+1. 將 `AURA.app` 拖入 `/Applications`。
 2. 第一次手動開啟 App；程式會安靜常駐於 macOS 選單列，不會顯示舊發票或示範收據。
 3. 在 Codex 輸入 `/mission popup on`。
 4. 下一張 Mission Invoice 開立後，App 會透過 `missioninvoice://receipt` 被喚起。

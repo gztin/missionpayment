@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum PopupSettingsLayout {
-    static let contentSize = CGSize(width: 280, height: 560)
+    static let contentSize = CGSize(width: 280, height: 640)
     static let dismissSecondsStep = 5
 }
 
@@ -16,6 +16,24 @@ struct PopupSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Mission Invoice 資料") {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(store.billingDirectoryName ?? "尚未授權資料夾")
+                            .lineLimit(1)
+                        Text(store.hasBillingDirectoryAccess
+                             ? "已取得唯讀權限"
+                             : "授權後才能讀取歷史帳單與連線狀態")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(store.hasBillingDirectoryAccess ? "重新選擇" : "選擇") {
+                        chooseBillingDirectory()
+                    }
+                }
+            }
+
             Section("外觀") {
                 Picker("顯示模式", selection: appearanceBinding) {
                     ForEach(PopupAppearance.allCases) { appearance in
@@ -267,6 +285,26 @@ struct PopupSettingsView: View {
             if preferences.soundEnabled, !store.playReceiptSound() {
                 soundError = SoundErrorPresentation(message: "音效已保存，但目前無法播放。")
             }
+        } catch {
+            soundError = SoundErrorPresentation(
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+    }
+
+    private func chooseBillingDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "選擇 Mission Invoice 資料夾"
+        panel.message = "請選擇 .codex-token-billing 資料夾。若看不到隱藏資料夾，可按 Command–Shift–G 輸入 ~/.codex-token-billing。"
+        panel.prompt = "授權讀取"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try store.authorizeBillingDirectory(url)
         } catch {
             soundError = SoundErrorPresentation(
                 message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
