@@ -1173,7 +1173,7 @@ async function recordTaskUsage(args = {}) {
     localCodexEvent: args.localCodexEvent || undefined,
     receipt: {
       receiptNo,
-      storeName: args.storeName || "Codex Token Mart",
+      storeName: args.storeName || "Mission Invoice",
       paymentType: args.paymentType || "Estimated",
       model,
       actualModel,
@@ -1380,7 +1380,7 @@ function localizeLineLabel(label, lang) {
     "Plan and approval": "規劃與確認",
     "Delete archive files": "刪除封存檔案",
     "Verification and receipt": "驗證與開立發票",
-    "Read and understand": "讀取與理解",
+    "Read and understand": "閱讀與理解",
     "Generate and summarize": "生成與摘要",
     "Total tokens": "Token 總計",
     "Unrecorded item": "未記錄項目"
@@ -1391,11 +1391,19 @@ function localizeLineLabel(label, lang) {
 function receiptPageHtml(record) {
   const receipt = record?.receipt || {};
   const modelName = displayModelForRecord(record);
+  const receiptDate = new Date(record?.endedAt || record?.createdAt || Date.now());
+  const receiptDateText = Number.isNaN(receiptDate.getTime())
+    ? "-"
+    : [
+        receiptDate.getFullYear(),
+        String(receiptDate.getMonth() + 1).padStart(2, "0"),
+        String(receiptDate.getDate()).padStart(2, "0")
+      ].join("-");
   const rows = (receipt.lineItems || []).map((item) => `
-      <tr>
-        <td>${escapeHtml(localizeLineLabel(item.label, "zh"))}</td>
-        <td class="num">${escapeHtml(Number(item.tokens || 0).toLocaleString("zh-Hant-TW"))}</td>
-      </tr>`).join("");
+      <div class="usage-row">
+        <span>${escapeHtml(localizeLineLabel(item.label, "zh"))}</span>
+        <strong>${escapeHtml(Number(item.tokens || 0).toLocaleString("zh-Hant-TW"))} <small>tokens</small></strong>
+      </div>`).join("");
   const dataJson = JSON.stringify({
     record: {
       id: record?.id,
@@ -1421,48 +1429,85 @@ function receiptPageHtml(record) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mission Invoice ${escapeHtml(receipt.receiptNo || "")}</title>
   <style>
-    :root { color-scheme: light; --ink: #20242b; --muted: #69707a; --line: #c7ccd4; --paper: #fffefa; --bg: #eef1f5; --accent: #2457a6; }
+    :root { color-scheme: light; --ink: #333333; --muted: #8c8983; --line: #dedcd7; --paper: #fffdf8; --bg: #eee9e1; --accent: #7f0019; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: start center; background: var(--bg); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 28px 16px; }
-    .receipt { width: min(430px, 100%); background: var(--paper); border: 1px solid #dad4c8; box-shadow: 0 18px 42px rgba(28, 33, 39, .16); padding: 22px 20px; }
-    .center { text-align: center; }
-    .title { font-size: 20px; font-weight: 800; letter-spacing: 0; }
-    .subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.5; }
-    .cut { border-top: 1px dashed #9ca3af; margin: 16px 0; }
-    .row { display: flex; justify-content: space-between; gap: 14px; margin: 8px 0; font-size: 13px; }
-    .row span:first-child { color: var(--muted); white-space: nowrap; }
-    .row strong { text-align: right; overflow-wrap: anywhere; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { padding: 7px 0; border-bottom: 1px dotted var(--line); text-align: left; vertical-align: top; }
-    th { color: var(--muted); font-weight: 700; }
-    .num { text-align: right; }
-    .total { font-size: 22px; font-weight: 900; }
-    .footer-links { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; }
-    .footer-links a { color: var(--accent); font-weight: 800; text-decoration: none; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: start center; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 28px 16px 44px; }
+    main { width: min(430px, 100%); }
+    .receipt { position: relative; background: var(--paper); border-radius: 18px 18px 0 0; box-shadow: 0 18px 42px rgba(51, 42, 32, .14); padding: 24px 24px 30px; }
+    .receipt::after { position: absolute; right: 0; bottom: -10px; left: 0; height: 11px; background: linear-gradient(135deg, var(--paper) 50%, transparent 51%) 0 0 / 18px 11px repeat-x, linear-gradient(45deg, transparent 49%, var(--paper) 50%) 9px 0 / 18px 11px repeat-x; content: ""; }
+    .header { display: flex; align-items: center; min-height: 36px; gap: 14px; }
+    .brand-mark { width: 6px; height: 32px; flex: 0 0 auto; background: var(--accent); }
+    .title { min-width: 0; flex: 1; font-size: 24px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+    .close { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #000; color: #fff; font-size: 27px; font-weight: 500; line-height: 1; text-decoration: none; }
+    .divider { height: 1px; margin: 18px 0 0; background: var(--line); }
+    .summary { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .summary-item { display: flex; min-width: 0; align-items: center; gap: 9px; }
+    .summary-item:last-child { justify-content: flex-end; }
+    .summary svg { width: 17px; height: 17px; flex: 0 0 auto; stroke: currentColor; }
+    .summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .section-title { margin: 18px 0 0; padding-bottom: 9px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 14px; font-weight: 800; }
+    .detail-row, .usage-row { display: flex; align-items: first baseline; justify-content: space-between; gap: 18px; padding: 9px 0; font-size: 13px; }
+    .detail-row span, .usage-row span { flex: 0 0 auto; color: var(--muted); font-weight: 600; }
+    .detail-row strong, .usage-row strong { min-width: 0; text-align: right; overflow-wrap: anywhere; }
+    .detail-row strong { font-weight: 700; }
+    .usage-row strong { color: var(--muted); font-weight: 600; }
+    .usage-row small { font-size: inherit; font-weight: inherit; }
+    .dashed { margin: 10px -8px 0; border-top: 1px dashed var(--line); }
+    .total-row { display: flex; align-items: first baseline; gap: 10px; padding-top: 18px; }
+    .total-label { margin-right: auto; color: var(--muted); font-size: 13px; font-weight: 800; }
+    .total { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 30px; font-weight: 900; letter-spacing: -.04em; line-height: 1; }
+    .unit { color: var(--muted); font-size: 13px; font-weight: 600; }
+    .footer-links { display: flex; justify-content: center; margin-top: 25px; font-size: 13px; }
+    .footer-links a { color: var(--muted); font-weight: 700; text-decoration: none; }
+    .footer-links a:hover, .footer-links a:focus-visible { color: var(--accent); text-decoration: underline; }
+    @media (max-width: 420px) {
+      body { padding: 12px 10px 32px; }
+      .receipt { border-radius: 14px 14px 0 0; padding: 20px 18px 26px; }
+      .title { font-size: 21px; }
+      .summary { gap: 10px; font-size: 12px; }
+      .detail-row, .usage-row { gap: 12px; }
+      .total { font-size: clamp(24px, 8vw, 30px); }
+    }
   </style>
 </head>
 <body>
-  <article class="receipt">
-    <section>
-      <div class="center"><div class="title">${escapeHtml(receipt.storeName || "Codex Token Mart")}</div><div class="subtitle">TOKEN &#x96FB;&#x5B50;&#x767C;&#x7968;</div><div class="subtitle">${escapeHtml(receipt.receiptNo || "NO-RECEIPT")}</div></div>
-      <div class="cut"></div>
-      <div class="row"><span>&#x4EFB;&#x52D9;</span><strong>${escapeHtml(record?.task || "Untitled task")}</strong></div>
-      <div class="row"><span>&#x985E;&#x578B;</span><strong>${escapeHtml(record?.category || "-")}</strong></div>
-      <div class="row"><span>&#x4F7F;&#x7528;&#x6A21;&#x578B;</span><strong>${escapeHtml(modelName)}</strong></div>
-      <div class="row"><span>&#x8017;&#x6642;</span><strong>${escapeHtml(formatDuration(record?.durationMs || receipt.durationMs))}</strong></div>
-      <div class="row"><span>&#x6642;&#x9593;</span><strong>${escapeHtml(record?.endedAt || record?.createdAt || "-")}</strong></div>
-      <div class="cut"></div>
-      <table><thead><tr><th>&#x54C1;&#x9805;</th><th class="num">Tokens</th></tr></thead><tbody>${rows || '<tr><td colspan="2">尚無品項</td></tr>'}</tbody></table>
-      <div class="cut"></div>
-      <div class="row"><span>輸入</span><strong>${escapeHtml(Number(record?.inputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="row"><span>快取輸入</span><strong>${escapeHtml(Number(record?.cachedInputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="row"><span>輸出</span><strong>${escapeHtml(Number(record?.outputTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="row"><span>總計</span><strong class="total">${escapeHtml(Number(record?.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</strong></div>
-      <div class="center subtitle">Token &#x7528;&#x91CF;&#x8A18;&#x9304;&#x5132;&#x5B58;&#x65BC;&#x672C;&#x6A5F;&#x3002;</div>
-      <div class="cut"></div>
-      <nav class="footer-links"><a href="index.html#stats">&#x7D71;&#x8A08;&#x8CC7;&#x8A0A;</a></nav>
-    </section>
-  </article>
+  <main>
+    <article class="receipt">
+      <header class="header">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="title">${escapeHtml(receipt.storeName || "Mission Invoice")}</div>
+        <a class="close" href="index.html#stats" aria-label="返回統計資訊">&times;</a>
+      </header>
+      <div class="divider"></div>
+      <div class="summary">
+        <div class="summary-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M7 3v4M17 3v4M3 10h18M7 14h2M11 14h2M15 14h2M7 18h2M11 18h2"></path></svg>
+          <span>${escapeHtml(receiptDateText)}</span>
+        </div>
+        <div class="summary-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" aria-hidden="true"><path d="M6 2h8l4 4v16H6z"></path><path d="M14 2v5h5M9 12h6M9 16h6"></path></svg>
+          <span>${escapeHtml(receipt.receiptNo || "NO-RECEIPT")}</span>
+        </div>
+      </div>
+      <section>
+        <h2 class="section-title">任務資訊</h2>
+        <div class="detail-row"><span>任務</span><strong>${escapeHtml(record?.task || "未命名任務")}</strong></div>
+        <div class="detail-row"><span>模型</span><strong>${escapeHtml(modelName)}</strong></div>
+        <div class="detail-row"><span>耗時</span><strong>${escapeHtml(formatDuration(record?.durationMs || receipt.durationMs).replace("m ", " 分 ").replace("s", " 秒"))}</strong></div>
+      </section>
+      <section>
+        <h2 class="section-title">使用量統計</h2>
+        ${rows || '<div class="usage-row"><span>尚無品項</span><strong>0 <small>tokens</small></strong></div>'}
+      </section>
+      <div class="dashed"></div>
+      <div class="total-row">
+        <span class="total-label">TOKEN 合計</span>
+        <strong class="total">${escapeHtml(Number(record?.totalTokens || 0).toLocaleString("zh-Hant-TW"))}</strong>
+        <span class="unit">tokens</span>
+      </div>
+    </article>
+    <nav class="footer-links"><a href="index.html#stats">統計資訊</a></nav>
+  </main>
   <script type="application/json" id="mission-invoice-data">${dataJson}</script>
 </body>
 </html>`;
