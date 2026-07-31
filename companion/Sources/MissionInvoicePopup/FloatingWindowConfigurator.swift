@@ -88,6 +88,11 @@ struct FloatingWindowConfigurator: NSViewRepresentable {
                 store.screenParametersDidChange()
             }
         }
+        Self.applyAppearance(store.preferences.appearance, to: window)
+    }
+
+    static func applyAppearance(_ appearance: PopupAppearance, to window: NSWindow) {
+        window.appearance = appearance.nsAppearanceName.flatMap(NSAppearance.init)
     }
 
     final class Coordinator: NSObject, NSWindowDelegate {

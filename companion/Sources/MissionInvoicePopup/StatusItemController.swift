@@ -9,6 +9,7 @@ final class StatusItemController: NSObject {
         self.store = store
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
+        statusItem.autosaveName = "tw.ggt.aura.status-item"
         configureButton()
         configureMenu()
     }

@@ -183,6 +183,34 @@ function sanitizeRateLimitWindow(window) {
   };
 }
 
+function sanitizeRateLimitResetCredits(value) {
+  if (!value || typeof value !== "object") return null;
+  const availableCount = Number(value.availableCount ?? value.available_count);
+  const credits = Array.isArray(value.credits)
+    ? value.credits.map((credit) => ({
+        id: credit?.id == null ? null : String(credit.id),
+        resetType: credit?.resetType == null
+          ? (credit?.reset_type == null ? null : String(credit.reset_type))
+          : String(credit.resetType),
+        status: credit?.status == null ? null : String(credit.status),
+        grantedAt: Number.isFinite(Number(credit?.grantedAt ?? credit?.granted_at))
+          ? Number(credit?.grantedAt ?? credit?.granted_at)
+          : null,
+        expiresAt: Number.isFinite(Number(credit?.expiresAt ?? credit?.expires_at))
+          ? Number(credit?.expiresAt ?? credit?.expires_at)
+          : null,
+        title: credit?.title == null ? null : String(credit.title),
+        description: credit?.description == null ? null : String(credit.description)
+      }))
+    : [];
+  return {
+    availableCount: Number.isFinite(availableCount)
+      ? Math.max(0, Math.round(availableCount))
+      : null,
+    credits
+  };
+}
+
 function sanitizeRateLimitsResponse(result, capturedAt = new Date().toISOString()) {
   const buckets = result?.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === "object"
     ? result.rateLimitsByLimitId
@@ -193,6 +221,9 @@ function sanitizeRateLimitsResponse(result, capturedAt = new Date().toISOString(
   }
   const primary = sanitizeRateLimitWindow(raw.primary);
   const secondary = sanitizeRateLimitWindow(raw.secondary);
+  const rateLimitResetCredits = sanitizeRateLimitResetCredits(
+    result?.rateLimitResetCredits ?? result?.rate_limit_reset_credits
+  );
   const windows = [primary, secondary].filter(Boolean);
   const preferredWindow = windows.slice().sort((a, b) => Number(b.windowDurationMins || 0) - Number(a.windowDurationMins || 0))[0] || null;
   return {
@@ -205,6 +236,7 @@ function sanitizeRateLimitsResponse(result, capturedAt = new Date().toISOString(
     primary,
     secondary,
     preferredWindow,
+    rateLimitResetCredits,
     errorCode: preferredWindow ? null : "MISSION_INVOICE_RATE_LIMIT_WINDOW_MISSING"
   };
 }
@@ -1039,7 +1071,7 @@ function notifyPopupApp(record = {}) {
   try {
     const payload = Buffer.from(JSON.stringify(popupReceiptPayload(record)), "utf8").toString("base64url");
     const url = `missioninvoice://receipt?payload=${encodeURIComponent(payload)}`;
-    const child = spawn("/usr/bin/open", ["-g", url], {
+    const child = spawn("/usr/bin/open", ["-g", "-b", "tw.ggt.aura", url], {
       detached: true,
       stdio: "ignore"
     });
@@ -1475,7 +1507,7 @@ function receiptPageHtml(record) {
     <article class="receipt">
       <header class="header">
         <span class="brand-mark" aria-hidden="true"></span>
-        <div class="title">${escapeHtml(receipt.storeName || "Mission Invoice")}</div>
+        <div class="title">本次任務</div>
         <a class="close" href="index.html#stats" aria-label="返回統計資訊">&times;</a>
       </header>
       <div class="divider"></div>

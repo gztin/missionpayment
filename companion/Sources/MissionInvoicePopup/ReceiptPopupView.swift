@@ -2,12 +2,25 @@ import AppKit
 import SwiftUI
 
 struct ReceiptPopupView: View {
-    let store: ReceiptStore
+    private let receipt: ReceiptPayload
+    private let palette: ReceiptThemePalette
+    private let dismiss: () -> Void
+    private let handleURL: (URL) -> Void
 
-    private let accentColor = Color(red: 127 / 255, green: 0, blue: 25 / 255)
-    private let inkColor = Color(red: 51 / 255, green: 51 / 255, blue: 51 / 255)
-    private let secondaryColor = Color(red: 140 / 255, green: 137 / 255, blue: 131 / 255)
-    private let dividerColor = Color(red: 222 / 255, green: 220 / 255, blue: 215 / 255)
+    init(store: ReceiptStore) {
+        receipt = store.receipt
+        palette = store.preferences.receiptTheme.palette
+        dismiss = { store.dismiss() }
+        handleURL = { store.handle(url: $0) }
+    }
+
+    init(previewing receipt: ReceiptPayload, palette: ReceiptThemePalette) {
+        self.receipt = receipt
+        self.palette = palette
+        dismiss = {}
+        handleURL = { _ in }
+    }
+
     private let tokenFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -31,8 +44,8 @@ struct ReceiptPopupView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .foregroundStyle(inkColor)
-        .onOpenURL { store.handle(url: $0) }
+        .foregroundStyle(palette.primaryText)
+        .onOpenURL(perform: handleURL)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("AURA 任務收據")
     }
@@ -41,22 +54,22 @@ struct ReceiptPopupView: View {
         HStack {
             HStack(spacing: 11) {
                 Rectangle()
-                    .fill(accentColor)
+                    .fill(palette.accent)
                     .frame(width: 6, height: 28)
 
-                Text("AURA")
+                Text("本次任務")
                     .font(.system(size: 20, weight: .bold))
             }
 
             Spacer()
 
-            Button {
-                store.dismiss()
-            } label: {
+            Button(action: dismiss) {
                 closeImage
+                    .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
                     .frame(width: 22, height: 22)
+                    .foregroundStyle(palette.primaryText)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -69,11 +82,11 @@ struct ReceiptPopupView: View {
         HStack {
             Label(receiptDateText, systemImage: "calendar")
             Spacer()
-            Label(store.receipt.receiptNo, systemImage: "doc.text")
+            Label(receipt.receiptNo, systemImage: "doc.text")
                 .lineLimit(1)
         }
         .font(.system(size: 11, weight: .regular))
-        .foregroundStyle(secondaryColor)
+        .foregroundStyle(palette.secondaryText)
         .labelStyle(.titleAndIcon)
         .padding(.vertical, 11)
         .overlay(alignment: .bottom) {
@@ -83,9 +96,9 @@ struct ReceiptPopupView: View {
 
     private var receiptDetails: some View {
         VStack(spacing: 0) {
-            detailRow("任務", store.receipt.task, lineLimit: 2)
-            detailRow("模型", store.receipt.model)
-            detailRow("耗時", store.receipt.formattedDuration)
+            detailRow("任務", receipt.task, lineLimit: 2)
+            detailRow("模型", receipt.model)
+            detailRow("耗時", receipt.formattedDuration)
         }
     }
 
@@ -95,14 +108,14 @@ struct ReceiptPopupView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(Self.localizedLineItemLabel(item.label))
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(secondaryColor)
+                        .foregroundStyle(palette.secondaryText)
                         .lineLimit(1)
 
                     Spacer(minLength: 8)
 
                     Text("\(format(item.tokens)) tokens")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(secondaryColor)
+                        .foregroundStyle(palette.secondaryText)
                         .lineLimit(1)
                 }
                 .padding(.vertical, 6)
@@ -114,26 +127,26 @@ struct ReceiptPopupView: View {
         HStack(alignment: .firstTextBaseline) {
             Text("TOKEN 合計")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(secondaryColor)
+                .foregroundStyle(palette.secondaryText)
 
             Spacer()
 
-            Text(format(store.receipt.totalTokens))
+            Text(format(receipt.totalTokens))
                 .font(.system(size: 22, weight: .bold, design: .monospaced))
-                .foregroundStyle(accentColor)
+                .foregroundStyle(palette.accent)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
 
             Text("tokens")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(secondaryColor)
+                .foregroundStyle(palette.secondaryText)
         }
         .padding(.top, 10)
     }
 
     private var divider: some View {
         Rectangle()
-            .fill(dividerColor)
+            .fill(palette.divider)
             .frame(height: 0.8)
     }
 
@@ -145,7 +158,7 @@ struct ReceiptPopupView: View {
                 HStack(spacing: 4) {
                     ForEach(0..<34, id: \.self) { _ in
                         Rectangle()
-                            .fill(dividerColor)
+                            .fill(palette.divider)
                             .frame(width: 4, height: 1)
                     }
                 }
@@ -162,8 +175,8 @@ struct ReceiptPopupView: View {
     }
 
     private var receiptDateText: String {
-        guard let date = ISO8601DateFormatter().date(from: store.receipt.endedAt) else {
-            return String(store.receipt.formattedDate.prefix(10))
+        guard let date = ISO8601DateFormatter().date(from: receipt.endedAt) else {
+            return String(receipt.formattedDate.prefix(10))
         }
         let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
         return String(
@@ -175,12 +188,12 @@ struct ReceiptPopupView: View {
     }
 
     private var displayLineItems: [ReceiptPayload.LineItem] {
-        if !store.receipt.lineItems.isEmpty {
-            return store.receipt.lineItems
+        if !receipt.lineItems.isEmpty {
+            return receipt.lineItems
         }
         return [
-            .init(label: "輸入 Token", tokens: store.receipt.inputTokens),
-            .init(label: "輸出 Token", tokens: store.receipt.outputTokens)
+            .init(label: "輸入 Token", tokens: receipt.inputTokens),
+            .init(label: "輸出 Token", tokens: receipt.outputTokens)
         ]
     }
 
@@ -192,7 +205,7 @@ struct ReceiptPopupView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(secondaryColor)
+                .foregroundStyle(palette.secondaryText)
                 .frame(width: 32, alignment: .leading)
 
             Text(value)
@@ -208,7 +221,7 @@ struct ReceiptPopupView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(secondaryColor)
+            .foregroundStyle(palette.secondaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 12)
             .padding(.bottom, 7)

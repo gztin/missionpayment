@@ -8,6 +8,7 @@ DERIVED_DATA_DIR="$BUILD_DIR/XcodeDerivedData"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
 APP_DIR="$OUTPUT_DIR/$APP_NAME.app"
 BUILT_APP_DIR="$DERIVED_DATA_DIR/Build/Products/Release/$APP_NAME.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 
 export CLANG_MODULE_CACHE_PATH="$BUILD_DIR/ModuleCache"
 
@@ -22,5 +23,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$OUTPUT_DIR"
 ditto "$BUILT_APP_DIR" "$APP_DIR"
 ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$OUTPUT_DIR/AURA-macOS.zip"
+"$LSREGISTER" -u "$BUILT_APP_DIR" || true
+"$LSREGISTER" -u "$APP_DIR" || true
 
 echo "$APP_DIR"

@@ -4,10 +4,13 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
+    private var didRequestBillingDirectoryAuthorization = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        ReceiptStore.shared.preferences.appearance.apply(to: NSApp)
         statusItemController = StatusItemController(store: .shared)
+        requestBillingDirectoryAuthorizationIfNeeded()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -21,6 +24,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    private func requestBillingDirectoryAuthorizationIfNeeded() {
+        let store = ReceiptStore.shared
+        guard store.requiresBillingDirectoryAuthorization,
+              !didRequestBillingDirectoryAuthorization
+        else {
+            return
+        }
+
+        didRequestBillingDirectoryAuthorization = true
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            do {
+                try BillingDirectoryAuthorization.request(for: store)
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
     }
 }
 
@@ -59,13 +81,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             windowController = controller
         }
 
+        applyAppearance(store.preferences.appearance)
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func applyAppearance(_ appearance: PopupAppearance) {
+        windowController?.window?.appearance = appearance.nsAppearanceName.flatMap(NSAppearance.init)
+    }
+
     var isVisible: Bool {
         windowController?.window?.isVisible == true
+    }
+
+    var window: NSWindow? {
+        windowController?.window
     }
 
     func close() {
@@ -88,6 +119,29 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             store?.settingsDidClose()
         } else {
             store?.setSettingsPresented(false)
+        }
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window === windowController?.window,
+              window.isVisible,
+              !window.isMiniaturized
+        else {
+            return
+        }
+
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self,
+                  let window,
+                  window.isVisible,
+                  !window.isKeyWindow,
+                  !window.isMiniaturized,
+                  NSApp.modalWindow == nil
+            else {
+                return
+            }
+            self.close()
         }
     }
 }

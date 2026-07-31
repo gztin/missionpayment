@@ -1071,7 +1071,7 @@ function notifyPopupApp(record = {}) {
   try {
     const payload = Buffer.from(JSON.stringify(popupReceiptPayload(record)), "utf8").toString("base64url");
     const url = `missioninvoice://receipt?payload=${encodeURIComponent(payload)}`;
-    const child = spawn("/usr/bin/open", ["-g", url], {
+    const child = spawn("/usr/bin/open", ["-g", "-b", "tw.ggt.aura", url], {
       detached: true,
       stdio: "ignore"
     });
@@ -1507,7 +1507,7 @@ function receiptPageHtml(record) {
     <article class="receipt">
       <header class="header">
         <span class="brand-mark" aria-hidden="true"></span>
-        <div class="title">${escapeHtml(receipt.storeName || "Mission Invoice")}</div>
+        <div class="title">本次任務</div>
         <a class="close" href="index.html#stats" aria-label="返回統計資訊">&times;</a>
       </header>
       <div class="divider"></div>

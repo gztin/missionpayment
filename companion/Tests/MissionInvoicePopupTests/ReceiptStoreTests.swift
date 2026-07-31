@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 import Testing
 @testable import MissionInvoicePopup
@@ -113,12 +114,21 @@ struct ReceiptStoreTests {
         let preferences = PopupPreferences(defaults: defaults)
         preferences.setAutoDismissSeconds(5)
         let store = ReceiptStore(preferences: preferences)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 260),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        store.attach(window: window)
 
         store.present(.sample, playSound: false)
         store.setSettingsPresented(true)
+        #expect(window.isVisible)
         try await Task.sleep(for: .seconds(6))
 
         #expect(!store.isReceiptPresented)
+        #expect(!window.isVisible)
     }
 
     @Test
@@ -260,7 +270,7 @@ struct ReceiptStoreTests {
     }
 
     @Test
-    func settingsWindowCanOpenCloseAndReuseOneWindow() {
+    func settingsWindowCanOpenCloseAndReuseOneWindow() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults(suiteName: "SettingsWindowTests")!
         defaults.removePersistentDomain(forName: "SettingsWindowTests")
@@ -278,8 +288,14 @@ struct ReceiptStoreTests {
         #expect(controller.isVisible)
         #expect(store.isSettingsPresented)
         #expect(!dashboardWindow.isVisible)
-        #expect(PopupSettingsLayout.contentSize == CGSize(width: 280, height: 640))
+        #expect(PopupSettingsLayout.contentSize == CGSize(width: 360, height: 460))
         #expect(PopupSettingsLayout.dismissSecondsStep == 5)
+        controller.applyAppearance(.dark)
+        #expect(controller.window?.appearance?.name == .darkAqua)
+        controller.applyAppearance(.light)
+        #expect(controller.window?.appearance?.name == .aqua)
+        controller.applyAppearance(.system)
+        #expect(controller.window?.appearance == nil)
 
         store.showSettings()
         #expect(controller.isVisible)
@@ -306,6 +322,16 @@ struct ReceiptStoreTests {
         #expect(dashboardWindow.isVisible)
         #expect(store.isReceiptPresented)
         store.dismiss()
+
+        store.showSettings()
+        let settingsWindow = try #require(controller.window)
+        controller.windowDidResignKey(
+            Notification(name: NSWindow.didResignKeyNotification, object: settingsWindow)
+        )
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!controller.isVisible)
+        #expect(!store.isSettingsPresented)
+        #expect(dashboardWindow.isVisible)
     }
 
     @Test
@@ -322,6 +348,8 @@ struct ReceiptStoreTests {
         #expect(preferences.soundEnabled)
         #expect(preferences.soundSource == .bundled)
         #expect(preferences.appearance == .system)
+        #expect(preferences.receiptTheme == .standard)
+        #expect(preferences.receiptTheme.title == "預設")
         #expect(defaults.integer(forKey: "preferences.schemaVersion") == 4)
     }
 
@@ -407,9 +435,75 @@ struct ReceiptStoreTests {
         let restored = PopupPreferences(defaults: defaults)
         #expect(restored.appearance == .dark)
         #expect(restored.appearance.colorScheme == .dark)
+        #expect(
+            PopupAppearance.system.resolvedColorScheme(systemColorScheme: .light) == .light
+        )
+        #expect(
+            PopupAppearance.system.resolvedColorScheme(systemColorScheme: .dark) == .dark
+        )
+        #expect(
+            PopupAppearance.light.resolvedColorScheme(systemColorScheme: .dark) == .light
+        )
+        #expect(
+            PopupAppearance.dark.resolvedColorScheme(systemColorScheme: .light) == .dark
+        )
+        #expect(PopupAppearance.system.nsAppearanceName == nil)
+        #expect(PopupAppearance.light.nsAppearanceName == .aqua)
+        #expect(PopupAppearance.dark.nsAppearanceName == .darkAqua)
 
         restored.appearance = .light
         #expect(PopupPreferences(defaults: defaults).appearance == .light)
+    }
+
+    @Test
+    func floatingWindowAppliesSelectedAppearance() {
+        let window = NSWindow()
+
+        FloatingWindowConfigurator.applyAppearance(.dark, to: window)
+        #expect(window.appearance?.name == .darkAqua)
+
+        FloatingWindowConfigurator.applyAppearance(.light, to: window)
+        #expect(window.appearance?.name == .aqua)
+
+        FloatingWindowConfigurator.applyAppearance(.system, to: window)
+        #expect(window.appearance == nil)
+    }
+
+    @Test
+    func applicationAppliesSelectedAppearance() {
+        let application = NSApplication.shared
+        defer { application.appearance = nil }
+
+        PopupAppearance.dark.apply(to: application)
+        #expect(application.appearance?.name == .darkAqua)
+
+        PopupAppearance.light.apply(to: application)
+        #expect(application.appearance?.name == .aqua)
+
+        PopupAppearance.system.apply(to: application)
+        #expect(application.appearance == nil)
+    }
+
+    @Test
+    func receiptThemeDefaultsToStandardAndPersists() {
+        let suiteName = "PopupPreferencesReceiptThemeTests"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let preferences = PopupPreferences(defaults: defaults)
+        #expect(preferences.receiptTheme == .standard)
+        #expect(preferences.receiptTheme.title == "預設")
+        #expect(ReceiptTheme.allCases == [.standard, .neon2026])
+        #expect(ReceiptTheme.neon2026.title == "iPlayground2026樣式")
+        #expect(ReceiptTheme.standard.swatches.count == 4)
+        #expect(ReceiptTheme.neon2026.swatches.map(\.hex) == [
+            "#D2FF01", "#0B0B0B", "#EDEDED", "#A3A3A3"
+        ])
+        #expect(ReceiptTheme.standard.advanced(by: -1) == .neon2026)
+        #expect(ReceiptTheme.neon2026.advanced(by: 1) == .standard)
+
+        preferences.receiptTheme = .neon2026
+        #expect(PopupPreferences(defaults: defaults).receiptTheme == .neon2026)
     }
 
     @Test
@@ -479,6 +573,56 @@ struct ReceiptStoreTests {
         )
 
         #expect(BillingDirectoryAccess.isBillingDirectory(testDirectory))
+    }
+
+    @Test
+    func billingDirectoryAuthorizationIsRequiredWhenMissingOrInvalid() throws {
+        let testDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MissionInvoiceAuthorizationTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: testDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+
+        #expect(BillingDirectoryAccess.requiresAuthorization(for: nil))
+        #expect(BillingDirectoryAccess.requiresAuthorization(for: testDirectory))
+
+        let projectsDirectory = testDirectory.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: projectsDirectory,
+            withIntermediateDirectories: true
+        )
+
+        #expect(!BillingDirectoryAccess.requiresAuthorization(for: testDirectory))
+    }
+
+    @Test
+    func authorizingBillingDirectoryUpdatesObservableStoreState() throws {
+        let suiteName = "BillingDirectoryObservationTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let access = BillingDirectoryAccess(defaults: defaults)
+        let store = ReceiptStore(
+            preferences: PopupPreferences(defaults: defaults),
+            billingDirectoryAccess: access
+        )
+        let testDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MissionInvoiceObservationTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: testDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+        try Data("{}".utf8).write(to: testDirectory.appendingPathComponent("settings.json"))
+        let didObserveChange = OSAllocatedUnfairLock(initialState: false)
+
+        withObservationTracking {
+            _ = store.hasBillingDirectoryAccess
+            _ = store.billingDirectoryName
+        } onChange: {
+            didObserveChange.withLock { $0 = true }
+        }
+
+        try store.authorizeBillingDirectory(testDirectory)
+
+        #expect(didObserveChange.withLock { $0 })
+        #expect(store.hasBillingDirectoryAccess)
+        #expect(store.billingDirectoryName == testDirectory.lastPathComponent)
     }
 
     @Test

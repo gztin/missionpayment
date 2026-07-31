@@ -36,6 +36,10 @@ final class BillingDirectoryAccess {
         activeURL
     }
 
+    var requiresAuthorization: Bool {
+        Self.requiresAuthorization(for: activeURL)
+    }
+
     func authorize(_ directoryURL: URL) throws {
         guard Self.isBillingDirectory(directoryURL) else {
             throw BillingDirectoryAccessError.invalidDirectory
@@ -71,6 +75,14 @@ final class BillingDirectoryAccess {
         let projectsURL = directoryURL.appendingPathComponent("projects", isDirectory: true)
         return fileManager.fileExists(atPath: settingsURL.path)
             || fileManager.fileExists(atPath: projectsURL.path)
+    }
+
+    static func requiresAuthorization(
+        for directoryURL: URL?,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard let directoryURL else { return true }
+        return !isBillingDirectory(directoryURL, fileManager: fileManager)
     }
 
     private func restore() {
@@ -163,6 +175,7 @@ final class ReceiptStore {
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var lastConnectionActivityAt: Date?
     private(set) var isReceiptPresented = false
+    private(set) var billingDirectoryURL: URL?
     let preferences: PopupPreferences
     let soundService: ReceiptSoundService
     @ObservationIgnored private let billingDirectoryAccess: BillingDirectoryAccess
@@ -183,20 +196,28 @@ final class ReceiptStore {
         self.preferences = preferences
         self.soundService = soundService
         self.billingDirectoryAccess = billingDirectoryAccess
+        billingDirectoryURL = billingDirectoryAccess.requiresAuthorization
+            ? nil
+            : billingDirectoryAccess.directoryURL
         reloadDashboard()
         refreshConnectionState(establishBaseline: true)
     }
 
     var hasBillingDirectoryAccess: Bool {
-        billingDirectoryAccess.directoryURL != nil
+        billingDirectoryURL != nil
+    }
+
+    var requiresBillingDirectoryAuthorization: Bool {
+        billingDirectoryURL == nil
     }
 
     var billingDirectoryName: String? {
-        billingDirectoryAccess.directoryURL?.lastPathComponent
+        billingDirectoryURL?.lastPathComponent
     }
 
     func authorizeBillingDirectory(_ url: URL) throws {
         try billingDirectoryAccess.authorize(url)
+        billingDirectoryURL = billingDirectoryAccess.directoryURL
         reloadDashboard()
         refreshConnectionState(establishBaseline: true)
     }
@@ -292,6 +313,12 @@ final class ReceiptStore {
         showHome()
     }
 
+    private func hideReceiptWindow() {
+        dismissTask?.cancel()
+        isReceiptPresented = false
+        receiptWindow?.orderOut(nil)
+    }
+
     func showHome() {
         showHome(closingSettings: true)
     }
@@ -374,7 +401,6 @@ final class ReceiptStore {
 
     private func showWindow() {
         NSApp.setActivationPolicy(.accessory)
-        NSApp.activate(ignoringOtherApps: true)
         if receiptWindow == nil {
             openWindowAction?()
             return
@@ -458,7 +484,7 @@ final class ReceiptStore {
         dismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
-            self?.dismiss()
+            self?.hideReceiptWindow()
         }
     }
 
@@ -606,6 +632,25 @@ final class ReceiptStore {
     }
 
     private static let lastProjectLogFileKey = "dashboard.lastProjectLogFile.v1"
+}
+
+@MainActor
+enum BillingDirectoryAuthorization {
+    @discardableResult
+    static func request(for store: ReceiptStore) throws -> Bool {
+        let panel = NSOpenPanel()
+        panel.title = "選擇 Mission Invoice 資料夾"
+        panel.message = "請選擇 .codex-token-billing 資料夾。若看不到隱藏資料夾，可按 Command–Shift–G 輸入 ~/.codex-token-billing。"
+        panel.prompt = "授權讀取"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        try store.authorizeBillingDirectory(url)
+        return true
+    }
 }
 
 private struct BillingSettings: Decodable {

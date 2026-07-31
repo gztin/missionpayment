@@ -25,6 +25,7 @@
 		A10000000000000000000010 /* codex_light.png in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* codex_light.png */; };
 		A10000000000000000000011 /* close_figma.svg in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* close_figma.svg */; };
 		A10000000000000000000012 /* MissionInvoice.icns in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* MissionInvoice.icns */; };
+		A10000000000000000000013 /* ReceiptTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000016 /* ReceiptTheme.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +50,7 @@
 		B10000000000000000000013 /* close_figma.svg */ = {isa = PBXFileReference; lastKnownFileType = image.svg; path = close_figma.svg; sourceTree = "<group>"; };
 		B10000000000000000000014 /* MissionInvoice.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = MissionInvoice.icns; sourceTree = "<group>"; };
 		B10000000000000000000015 /* MissionInvoicePopup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MissionInvoicePopup.entitlements; sourceTree = "<group>"; };
+		B10000000000000000000016 /* ReceiptTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptTheme.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,6 +82,7 @@
 				B10000000000000000000004 /* PopupSettingsView.swift */,
 				B10000000000000000000005 /* ReceiptPayload.swift */,
 				B10000000000000000000006 /* ReceiptPopupView.swift */,
+				B10000000000000000000016 /* ReceiptTheme.swift */,
 				B10000000000000000000007 /* ReceiptSoundService.swift */,
 				B10000000000000000000008 /* ReceiptStore.swift */,
 				B1000000000000000000000C /* PopupHomeView.swift */,
@@ -219,6 +222,7 @@
 				A10000000000000000000004 /* PopupSettingsView.swift in Sources */,
 				A10000000000000000000005 /* ReceiptPayload.swift in Sources */,
 				A10000000000000000000006 /* ReceiptPopupView.swift in Sources */,
+				A10000000000000000000013 /* ReceiptTheme.swift in Sources */,
 				A10000000000000000000007 /* ReceiptSoundService.swift in Sources */,
 				A10000000000000000000008 /* ReceiptStore.swift in Sources */,
 				A1000000000000000000000A /* PopupHomeView.swift in Sources */,

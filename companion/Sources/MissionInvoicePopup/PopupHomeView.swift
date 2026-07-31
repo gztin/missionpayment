@@ -129,6 +129,9 @@ struct PopupRootView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let store: ReceiptStore
+    private var receiptPalette: ReceiptThemePalette {
+        store.preferences.receiptTheme.palette
+    }
 
     var body: some View {
         Group {
@@ -152,15 +155,9 @@ struct PopupRootView: View {
             ) {
                 if store.isReceiptPresented {
                     ReceiptCardShape()
-                        .fill(
-                            Color(
-                                red: 247 / 255,
-                                green: 245 / 255,
-                                blue: 240 / 255
-                            )
-                        )
+                        .fill(receiptPalette.paper)
                         .shadow(
-                            color: Color.black.opacity(0.18),
+                            color: receiptPalette.shadow,
                             radius: 6,
                             x: 0,
                             y: 4
@@ -223,7 +220,7 @@ struct PopupRootView: View {
         )
         .onOpenURL { store.handle(url: $0) }
         .task { await store.monitorConnection() }
-        .preferredColorScheme(store.preferences.appearance.colorScheme)
+        .popupAppearance(store.preferences.appearance)
     }
 
     private var contentSize: CGSize {

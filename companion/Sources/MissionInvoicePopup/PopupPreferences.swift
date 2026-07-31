@@ -25,6 +25,44 @@ enum PopupAppearance: String, CaseIterable, Identifiable, Sendable {
         case .dark: .dark
         }
     }
+
+    var nsAppearanceName: NSAppearance.Name? {
+        switch self {
+        case .system: nil
+        case .light: .aqua
+        case .dark: .darkAqua
+        }
+    }
+
+    func resolvedColorScheme(systemColorScheme: ColorScheme) -> ColorScheme {
+        colorScheme ?? systemColorScheme
+    }
+
+    @MainActor
+    func apply(to application: NSApplication) {
+        application.appearance = nsAppearanceName.flatMap(NSAppearance.init)
+    }
+}
+
+private struct PopupAppearanceModifier: ViewModifier {
+    @Environment(\.colorScheme) private var systemColorScheme
+
+    let appearance: PopupAppearance
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        content
+            .environment(
+                \.colorScheme,
+                appearance.resolvedColorScheme(systemColorScheme: systemColorScheme)
+            )
+    }
+}
+
+extension View {
+    func popupAppearance(_ appearance: PopupAppearance) -> some View {
+        modifier(PopupAppearanceModifier(appearance: appearance))
+    }
 }
 
 enum PopupPosition: String, CaseIterable, Identifiable, Sendable {
@@ -138,6 +176,10 @@ final class PopupPreferences {
         didSet { defaults.set(appearance.rawValue, forKey: Keys.appearance) }
     }
 
+    var receiptTheme: ReceiptTheme {
+        didSet { defaults.set(receiptTheme.rawValue, forKey: Keys.receiptTheme) }
+    }
+
     private(set) var soundSource: ReceiptSoundSource {
         didSet { defaults.set(soundSource.rawValue, forKey: Keys.soundSource) }
     }
@@ -198,6 +240,9 @@ final class PopupPreferences {
         appearance = PopupAppearance(
             rawValue: defaults.string(forKey: Keys.appearance) ?? ""
         ) ?? .system
+        receiptTheme = ReceiptTheme(
+            rawValue: defaults.string(forKey: Keys.receiptTheme) ?? ""
+        ) ?? .standard
 
         let storedSeconds = defaults.object(forKey: Keys.autoDismissSeconds) as? Int ?? 10
         autoDismissSeconds = Self.clampedDismissSeconds(storedSeconds)
@@ -273,6 +318,7 @@ final class PopupPreferences {
         static let autoDismissSeconds = "popup.autoDismissSeconds"
         static let soundEnabled = "sound.enabled"
         static let appearance = "appearance.mode"
+        static let receiptTheme = "receipt.theme"
         static let soundSource = "sound.source"
         static let customSoundFilename = "sound.customFilename"
         static let customSoundDisplayName = "sound.customDisplayName"

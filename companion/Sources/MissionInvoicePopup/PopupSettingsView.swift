@@ -3,18 +3,69 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum PopupSettingsLayout {
-    static let contentSize = CGSize(width: 280, height: 640)
+    static let contentSize = CGSize(width: 360, height: 460)
     static let dismissSecondsStep = 5
 }
 
 struct PopupSettingsView: View {
     let store: ReceiptStore
+    @State private var selectedTab = PopupSettingsTab.data
     @State private var soundError: SoundErrorPresentation?
     @State private var soundToRemove: String?
+    @State private var previewedTheme: ReceiptTheme?
 
     private var preferences: PopupPreferences { store.preferences }
 
     var body: some View {
+        VStack(spacing: 0) {
+            EqualWidthSegmentedControl(selection: $selectedTab)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
+
+            Divider()
+
+            selectedSettings
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(
+            width: PopupSettingsLayout.contentSize.width,
+            height: PopupSettingsLayout.contentSize.height
+        )
+        .popupAppearance(preferences.appearance)
+        .alert(removalAlertTitle, isPresented: removalAlertIsPresented) {
+            Button("取消", role: .cancel) {
+                soundToRemove = nil
+            }
+            Button("移除", role: .destructive) {
+                store.resetCustomSound()
+                soundToRemove = nil
+            }
+        }
+        .alert(item: $soundError) { error in
+            Alert(
+                title: Text("無法套用音效"),
+                message: Text(error.message),
+                dismissButton: .default(Text("好"))
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var selectedSettings: some View {
+        switch selectedTab {
+        case .data:
+            dataSettings
+        case .appearance:
+            appearanceSettings
+        case .receipt:
+            receiptSettings
+        }
+    }
+
+    private var dataSettings: some View {
         Form {
             Section("Mission Invoice 資料") {
                 HStack {
@@ -34,6 +85,18 @@ struct PopupSettingsView: View {
                 }
             }
 
+            Section("發票顯示位置") {
+                positionGrid
+                Text(positionDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var appearanceSettings: some View {
+        Form {
             Section("外觀") {
                 Picker("顯示模式", selection: appearanceBinding) {
                     ForEach(PopupAppearance.allCases) { appearance in
@@ -43,13 +106,15 @@ struct PopupSettingsView: View {
                 .pickerStyle(.segmented)
             }
 
-            Section("發票顯示位置") {
-                positionGrid
-                Text(positionDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Section("發票樣式") {
+                receiptThemeCarousel
             }
+        }
+        .formStyle(.grouped)
+    }
 
+    private var receiptSettings: some View {
+        Form {
             Section("發票關閉") {
                 Toggle("自動關閉", isOn: autoDismissBinding)
                     .toggleStyle(.switch)
@@ -112,6 +177,8 @@ struct PopupSettingsView: View {
                     }
                     Spacer()
 
+                    soundTestButton
+
                     if preferences.soundSource == .custom {
                         Button("來源") {
                             chooseSound()
@@ -126,40 +193,12 @@ struct PopupSettingsView: View {
                     }
                 }
 
-                Button("播放測試") {
-                    if !store.playReceiptSound() {
-                        soundError = SoundErrorPresentation(message: "音效無法播放，請重新選擇檔案。")
-                    }
-                }
-                .disabled(!canPlaySelectedSound)
-
                 Text("支援 MP3、M4A、WAV、AIFF；最大 5 MB，最長 10 秒。檔案只會保存在這台 Mac。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(
-            width: PopupSettingsLayout.contentSize.width,
-            height: PopupSettingsLayout.contentSize.height
-        )
-        .preferredColorScheme(preferences.appearance.colorScheme)
-        .alert(removalAlertTitle, isPresented: removalAlertIsPresented) {
-            Button("取消", role: .cancel) {
-                soundToRemove = nil
-            }
-            Button("移除", role: .destructive) {
-                store.resetCustomSound()
-                soundToRemove = nil
-            }
-        }
-        .alert(item: $soundError) { error in
-            Alert(
-                title: Text("無法套用音效"),
-                message: Text(error.message),
-                dismissButton: .default(Text("好"))
-            )
-        }
     }
 
     private var removalAlertIsPresented: Binding<Bool> {
@@ -178,6 +217,15 @@ struct PopupSettingsView: View {
             return "是否要移除這個音效檔？"
         }
         return "是否要移除 \(soundToRemove)？"
+    }
+
+    private var soundTestButton: some View {
+        Button("播放測試") {
+            if !store.playReceiptSound() {
+                soundError = SoundErrorPresentation(message: "音效無法播放，請重新選擇檔案。")
+            }
+        }
+        .disabled(!canPlaySelectedSound)
     }
 
     private var canPlaySelectedSound: Bool {
@@ -224,6 +272,121 @@ struct PopupSettingsView: View {
         return "目前位置：\(preferences.position.title)。你也可以直接拖動發票到任意位置。"
     }
 
+    private var receiptThemeCarousel: some View {
+        let displayedTheme = previewedTheme ?? preferences.receiptTheme
+
+        return VStack(spacing: 12) {
+            ZStack {
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 0) {
+                        ForEach(ReceiptTheme.allCases) { theme in
+                            ReceiptThemePreview(theme: theme)
+                                .containerRelativeFrame(.horizontal)
+                                .id(theme)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollIndicators(.hidden)
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $previewedTheme)
+
+                HStack {
+                    carouselButton(
+                        systemName: "chevron.left",
+                        accessibilityLabel: "上一個發票樣式",
+                        offset: -1
+                    )
+                    Spacer()
+                    carouselButton(
+                        systemName: "chevron.right",
+                        accessibilityLabel: "下一個發票樣式",
+                        offset: 1
+                    )
+                }
+                .padding(.horizontal, 4)
+            }
+            .frame(height: 220)
+
+            HStack(spacing: 8) {
+                ForEach(ReceiptTheme.allCases) { theme in
+                    Circle()
+                        .fill(theme == displayedTheme ? Color.accentColor : Color.secondary.opacity(0.3))
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .accessibilityHidden(true)
+
+            Text(displayedTheme.title)
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("色票組成")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    ForEach(displayedTheme.swatches) { swatch in
+                        VStack(spacing: 4) {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(swatch.color)
+                                .frame(height: 32)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                                }
+                            Text(swatch.title)
+                                .font(.caption2)
+                            Text(swatch.hex)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+
+            Button(displayedTheme == preferences.receiptTheme ? "已套用" : "套用") {
+                preferences.receiptTheme = displayedTheme
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+            .disabled(displayedTheme == preferences.receiptTheme)
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            if previewedTheme == nil {
+                previewedTheme = preferences.receiptTheme
+            }
+        }
+    }
+
+    private func carouselButton(
+        systemName: String,
+        accessibilityLabel: String,
+        offset: Int
+    ) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                previewedTheme = (previewedTheme ?? preferences.receiptTheme)
+                    .advanced(by: offset)
+            }
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .background {
+                    Circle()
+                        .fill(Color.secondary.opacity(0.14))
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
     private var autoDismissBinding: Binding<Bool> {
         Binding(
             get: { preferences.autoDismissEnabled },
@@ -234,7 +397,11 @@ struct PopupSettingsView: View {
     private var appearanceBinding: Binding<PopupAppearance> {
         Binding(
             get: { preferences.appearance },
-            set: { preferences.appearance = $0 }
+            set: {
+                preferences.appearance = $0
+                $0.apply(to: NSApp)
+                SettingsWindowController.shared.applyAppearance($0)
+            }
         )
     }
 
@@ -282,9 +449,6 @@ struct PopupSettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             _ = try store.importCustomSound(from: url)
-            if preferences.soundEnabled, !store.playReceiptSound() {
-                soundError = SoundErrorPresentation(message: "音效已保存，但目前無法播放。")
-            }
         } catch {
             soundError = SoundErrorPresentation(
                 message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -293,22 +457,123 @@ struct PopupSettingsView: View {
     }
 
     private func chooseBillingDirectory() {
-        let panel = NSOpenPanel()
-        panel.title = "選擇 Mission Invoice 資料夾"
-        panel.message = "請選擇 .codex-token-billing 資料夾。若看不到隱藏資料夾，可按 Command–Shift–G 輸入 ~/.codex-token-billing。"
-        panel.prompt = "授權讀取"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try store.authorizeBillingDirectory(url)
+            try BillingDirectoryAuthorization.request(for: store)
         } catch {
             soundError = SoundErrorPresentation(
                 message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             )
+        }
+    }
+}
+
+private enum PopupSettingsTab: Int, Hashable {
+    case data
+    case appearance
+    case receipt
+}
+
+private struct ReceiptThemePreview: View {
+    let theme: ReceiptTheme
+
+    private var palette: ReceiptThemePalette { theme.palette }
+
+    var body: some View {
+        ZStack {
+            ReceiptCardShape()
+                .fill(palette.paper)
+                .shadow(color: palette.shadow, radius: 6, y: 4)
+
+            ReceiptPopupView(
+                previewing: .themePreview,
+                palette: palette
+            )
+        }
+        .frame(
+            width: PopupLayout.receiptSurfaceSize.width,
+            height: PopupLayout.receiptSurfaceSize.height
+        )
+        .scaleEffect(0.56)
+        .frame(
+            width: PopupLayout.receiptSurfaceSize.width * 0.56,
+            height: PopupLayout.receiptSurfaceSize.height * 0.56
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(theme.title)發票預覽")
+    }
+}
+
+private extension ReceiptPayload {
+    static let themePreview = ReceiptPayload(
+        version: 1,
+        receiptNo: "TX-2607-2026",
+        task: "發票樣式預覽",
+        category: "frontend-review",
+        model: "未取得",
+        endedAt: "2026-07-31T00:00:00.000Z",
+        durationMs: 0,
+        inputTokens: 2_600,
+        outputTokens: 700,
+        totalTokens: 3_300,
+        lineItems: [
+            .init(label: "Read and understand", tokens: 2_600),
+            .init(label: "Generate and summarize", tokens: 700)
+        ],
+        projectId: nil,
+        projectLogFile: nil,
+        receiptFileUrl: nil,
+        accountUsageSnapshot: nil
+    )
+}
+
+private struct EqualWidthSegmentedControl: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
+    @Binding var selection: PopupSettingsTab
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(
+            labels: ["資料", "外觀", "發票"],
+            trackingMode: .selectOne,
+            target: context.coordinator,
+            action: #selector(Coordinator.selectionChanged(_:))
+        )
+        control.segmentStyle = .rounded
+        control.segmentDistribution = .fillEqually
+        control.selectedSegment = selection.rawValue
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setAccessibilityLabel("設定分類")
+        updateAppearance(of: control)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.parent = self
+        control.selectedSegment = selection.rawValue
+        updateAppearance(of: control)
+    }
+
+    private func updateAppearance(of control: NSSegmentedControl) {
+        control.appearance = NSAppearance(
+            named: colorScheme == .dark ? .darkAqua : .aqua
+        )
+        control.needsDisplay = true
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: EqualWidthSegmentedControl
+
+        init(parent: EqualWidthSegmentedControl) {
+            self.parent = parent
+        }
+
+        @objc func selectionChanged(_ sender: NSSegmentedControl) {
+            guard let tab = PopupSettingsTab(rawValue: sender.selectedSegment) else { return }
+            parent.selection = tab
         }
     }
 }
