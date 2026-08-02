@@ -312,35 +312,17 @@ https://github.com/gztin/missionpayment/tree/main
 
 `/tree/main` 是 GitHub 網頁路徑，不是可 clone 的 Git URL。
 
-## macOS 浮動收據 App（選配）
+## macOS AURA App（選配）
 
-Mission Invoice 可以只安裝 Codex 外掛，也可以另外安裝原生 macOS 浮動收據 App。沒有安裝 App 時，HTML 發票與歷史帳單功能不受影響。
+Mission Invoice 可以獨立產生 HTML 發票與歷史帳單；若需要原生 macOS 浮動收據、設定介面與音效，可另外安裝 AURA。
 
-本機建置：
-
-```bash
-./companion/build-app.sh
-```
-
-完成後將下列 App 拖入 `/Applications`：
+AURA 已移至獨立專案開發與發布：
 
 ```text
-companion/dist/Mission Invoice Popup.app
+https://github.com/gztin/aura-macos
 ```
 
-第一次手動開啟後，在 Codex 輸入：
-
-```text
-/mission popup on
-```
-
-之後每次成功開立發票，會顯示寬度 265pt、帶有撕紙鋸齒邊的置頂無邊框收據並播放收銀機音效。預設顯示在主螢幕右上角，使用者可在設定視窗選擇九宮格位置，也可直接拖動並保存自訂位置；App 會讓視窗與螢幕可用範圍四側至少保留 50pt，並在螢幕或視窗尺寸改變後重新校正。
-
-設定中的「自動關閉」Switch 可切換手動與自動模式。自動模式可設定 5～20 秒，預設 10 秒，且不受滑鼠停留或設定視窗影響；手動模式會持續顯示，直到按下關閉按鈕。發票關閉後會恢復為 221 × 55pt 用量浮動視窗。使用 `/mission popup off` 可關閉浮動視窗，但不會關閉一般發票。
-
-「播放發票音效」Switch 預設開啟。使用者可以使用內建收銀機音效，也可以在設定視窗選擇只保存在本機的 MP3、M4A、WAV 或 AIFF 音效；檔案最大 5 MB、最長 10 秒，通過 Core Audio 解碼驗證後才會套用。設定頁可播放測試或恢復預設音效。
-
-目前產物採本機 ad hoc 簽章，供開發測試使用；公開下載與 Mac App Store 版本仍需使用 Apple Developer 憑證簽章、公證或送審。
+App 的建置、安裝、版本同步及測試方式請參閱 AURA repo。Mission Invoice 仍會透過 `missioninvoice://receipt` 傳送本機收據通知；未安裝或未啟用 AURA 時，不影響一般發票功能。
 
 ## 限制
 
